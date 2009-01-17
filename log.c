@@ -35,6 +35,8 @@
 #include "stringref.h"
 #include "imgstore.h"
 
+#include "config.h"
+
 static GSList *loggers = NULL;
 
 static PurpleLogLogger *html_logger;

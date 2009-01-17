@@ -51,6 +51,8 @@
 #include "stun.h"
 #include "util.h"
 
+#include "config.h"
+
 #ifdef HAVE_DBUS
 #  ifndef DBUS_API_SUBJECT_TO_CHANGE
 #    define DBUS_API_SUBJECT_TO_CHANGE
