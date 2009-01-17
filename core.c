@@ -363,7 +363,7 @@ move_and_symlink_dir(const char *path, const char *basename, const char *old_bas
 #endif
 	if (g_rename(path, new_name))
 	{
-		purple_debug_error("core", "Error renaming %s to %s: %s. Please report this at http://developer.pidgin.im\n",
+		purple_debug_error("core", "Error renaming %s to %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 		                   path, new_name, g_strerror(errno));
 		g_free(new_name);
 		return FALSE;
@@ -376,7 +376,7 @@ move_and_symlink_dir(const char *path, const char *basename, const char *old_bas
 	old_name = g_build_filename(old_base, basename, NULL);
 	if (symlink(new_name, old_name))
 	{
-		purple_debug_warning("core", "Error symlinking %s to %s: %s. Please report this at http://developer.pidgin.im\n",
+		purple_debug_warning("core", "Error symlinking %s to %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 		                     old_name, new_name, g_strerror(errno));
 	}
 	g_free(old_name);
@@ -432,7 +432,7 @@ purple_core_migrate(void)
 	{
 		if (g_mkdir(user_dir, S_IRUSR | S_IWUSR | S_IXUSR) == -1)
 		{
-			purple_debug_error("core", "Error creating directory %s: %s. Please report this at http://developer.pidgin.im\n",
+			purple_debug_error("core", "Error creating directory %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 			                   user_dir, g_strerror(errno));
 			g_free(status_file);
 			g_free(old_user_dir);
@@ -444,7 +444,7 @@ purple_core_migrate(void)
 	 * incomplete migrations and properly retry. */
 	if (!(fp = g_fopen(status_file, "w")))
 	{
-		purple_debug_error("core", "Error opening file %s for writing: %s. Please report this at http://developer.pidgin.im\n",
+		purple_debug_error("core", "Error opening file %s for writing: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 		                   status_file, g_strerror(errno));
 		g_free(status_file);
 		g_free(old_user_dir);
@@ -456,7 +456,7 @@ purple_core_migrate(void)
 	err = NULL;
 	if (!(dir = g_dir_open(old_user_dir, 0, &err)))
 	{
-		purple_debug_error("core", "Error opening directory %s: %s. Please report this at http://developer.pidgin.im\n",
+		purple_debug_error("core", "Error opening directory %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 		                   status_file,
 		                   (err ? err->message : "Unknown error"));
 		if (err)
@@ -485,7 +485,7 @@ purple_core_migrate(void)
 				if ((link = g_file_read_link(name, &err)) == NULL)
 				{
 					char *name_utf8 = g_filename_to_utf8(name, -1, NULL, NULL, NULL);
-					purple_debug_error("core", "Error reading symlink %s: %s. Please report this at http://developer.pidgin.im\n",
+					purple_debug_error("core", "Error reading symlink %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 					                   name_utf8 ? name_utf8 : name, err->message);
 					g_free(name_utf8);
 					g_error_free(err);
@@ -502,7 +502,7 @@ purple_core_migrate(void)
 				if ((linklen = readlink(name, buf, sizeof(buf) - 1) == -1))
 				{
 					char *name_utf8 = g_filename_to_utf8(name, -1, NULL, NULL, NULL);
-					purple_debug_error("core", "Error reading symlink %s: %s. Please report this at http://developer.pidgin.im\n",
+					purple_debug_error("core", "Error reading symlink %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 					                   name_utf8, g_strerror(errno));
 					g_free(name_utf8);
 					g_free(name);
@@ -540,7 +540,7 @@ purple_core_migrate(void)
 				 * guaranteed.  Oh well. */
 				if (symlink(link, logs_dir))
 				{
-					purple_debug_error("core", "Error symlinking %s to %s: %s. Please report this at http://developer.pidgin.im\n",
+					purple_debug_error("core", "Error symlinking %s to %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 					                   logs_dir, link, g_strerror(errno));
 					g_free(link);
 					g_free(name);
@@ -579,7 +579,7 @@ purple_core_migrate(void)
 				err = NULL;
 				if (!(icons_dir = g_dir_open(name, 0, &err)))
 				{
-					purple_debug_error("core", "Error opening directory %s: %s. Please report this at http://developer.pidgin.im\n",
+					purple_debug_error("core", "Error opening directory %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 					                   name,
 					                   (err ? err->message : "Unknown error"));
 					if (err)
@@ -597,7 +597,7 @@ purple_core_migrate(void)
 				{
 					if (g_mkdir(new_icons_dir, S_IRUSR | S_IWUSR | S_IXUSR) == -1)
 					{
-						purple_debug_error("core", "Error creating directory %s: %s. Please report this at http://developer.pidgin.im\n",
+						purple_debug_error("core", "Error creating directory %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 						                   new_icons_dir, g_strerror(errno));
 						g_free(new_icons_dir);
 						g_dir_close(icons_dir);
@@ -660,7 +660,7 @@ purple_core_migrate(void)
 
 			if (!(fp = g_fopen(name, "rb")))
 			{
-				purple_debug_error("core", "Error opening file %s for reading: %s. Please report this at http://developer.pidgin.im\n",
+				purple_debug_error("core", "Error opening file %s for reading: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 				                   name, g_strerror(errno));
 				g_free(name);
 				g_dir_close(dir);
@@ -672,7 +672,7 @@ purple_core_migrate(void)
 			new_name = g_build_filename(user_dir, entry, NULL);
 			if (!(new_file = g_fopen(new_name, "wb")))
 			{
-				purple_debug_error("core", "Error opening file %s for writing: %s. Please report this at http://developer.pidgin.im\n",
+				purple_debug_error("core", "Error opening file %s for writing: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 				                   new_name, g_strerror(errno));
 				fclose(fp);
 				g_free(new_name);
@@ -691,7 +691,7 @@ purple_core_migrate(void)
 				size = fread(buf, 1, sizeof(buf), fp);
 				if (size != sizeof(buf) && !feof(fp))
 				{
-					purple_debug_error("core", "Error reading %s: %s. Please report this at http://developer.pidgin.im\n",
+					purple_debug_error("core", "Error reading %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 					                   name, g_strerror(errno));
 					fclose(new_file);
 					fclose(fp);
@@ -705,7 +705,7 @@ purple_core_migrate(void)
 
 				if (!fwrite(buf, size, 1, new_file) && ferror(new_file) != 0)
 				{
-					purple_debug_error("core", "Error writing %s: %s. Please report this at http://developer.pidgin.im\n",
+					purple_debug_error("core", "Error writing %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 					                   new_name, g_strerror(errno));
 					fclose(new_file);
 					fclose(fp);
@@ -720,7 +720,7 @@ purple_core_migrate(void)
 
 			if (fclose(new_file))
 			{
-				purple_debug_error("core", "Error writing: %s: %s. Please report this at http://developer.pidgin.im\n",
+				purple_debug_error("core", "Error writing: %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 				                   new_name, g_strerror(errno));
 			}
 			if (fclose(fp))
@@ -739,7 +739,7 @@ purple_core_migrate(void)
 	/* The migration was successful, so delete the status file. */
 	if (g_unlink(status_file))
 	{
-		purple_debug_error("core", "Error unlinking file %s: %s. Please report this at http://developer.pidgin.im\n",
+		purple_debug_error("core", "Error unlinking file %s: %s. Please report this at " PURPLE_DEVEL_WEBSITE "\n",
 		                   status_file, g_strerror(errno));
 		g_free(status_file);
 		return FALSE;
