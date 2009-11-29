@@ -1,4 +1,4 @@
-CC := gcc
+CC := $(CROSS_COMPILE)gcc
 
 PLATFORM := $(shell uname -s)
 
@@ -8,15 +8,8 @@ GOBJECT_LIBS := $(shell pkg-config --libs gobject-2.0)
 LIBXML_CFLAGS := $(shell pkg-config --cflags libxml-2.0)
 LIBXML_LIBS := $(shell pkg-config --libs libxml-2.0)
 
-ifdef DEBUG
-  CFLAGS += -ggdb
-else
-  CFLAGS += -O2
-endif
-
-SIMPLE_WARNINGS := -Wextra -ansi -std=c99 -Wno-unused-parameter
-
-CFLAGS += -Wall # $(SIMPLE_WARNINGS)
+CFLAGS := -O2 -ggdb -Wall
+LDFLAGS := -Wl,--no-undefined
 
 datadir := /usr/share
 libdir := /usr/lib
@@ -29,12 +22,6 @@ override CFLAGS += -DBR_PTHREADS=0 \
 	-DLOCALEDIR=\"$(datadir)/locale\" \
 	-DSYSCONFDIR=\"$(sysconfdir)\" \
 	-DSSL_CERTIFICATES_DIR=\"$(ssl_dir)\"
-
-LDFLAGS := -Wl,--no-undefined
-
-prefix := $(DESTDIR)/$(PURPLE_PREFIX)
-plugin_dir := $(prefix)/lib/purple-2
-data_dir := $(prefix)/share
 
 objects = account.o \
 	  accountopt.o \
@@ -73,7 +60,7 @@ objects = account.o \
 	  signals.o \
 	  smiley.o \
 	  dnsquery.o \
-	  dnssrv.o\
+	  dnssrv.o \
 	  status.o \
 	  stringref.o \
 	  stun.o \
@@ -87,40 +74,40 @@ objects = account.o \
 	  whiteboard.o
 
 sources := $(patsubst %.o,%.c,$(objects))
+deps := $(patsubst %.o,%.d,$(objects))
 
 SHLIBEXT := so
+override CFLAGS += -fPIC
+LIBS := -lresolv
 
 target := libpurple.$(SHLIBEXT)
-override CFLAGS += -fPIC
 
 .PHONY: all clean
 
 all: $(target)
 
-# from Lauri Leukkunen's build system
-ifdef V
-Q = 
-P = @printf "" # <- space before hash is important!!!
-else
-P = @printf "[%s] $@\n" # <- space before hash is important!!!
-Q = @
-endif
+# pretty print
+V = @
+Q = $(V:y=)
+QUIET_CC    = $(Q:@=@echo '   CC         '$@;)
+QUIET_LINK  = $(Q:@=@echo '   LINK       '$@;)
+QUIET_CLEAN = $(Q:@=@echo '   CLEAN      '$@;)
+
+version := 2.5.1
 
 $(target): $(objects)
-$(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) -D VERSION='"2.5.1"'
-$(target): LIBS := $(GOBJECT_LIBS) $(LIBXML_LIBS) -lresolv
+$(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
+	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
+$(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS)
 
-%.so::
-	$(P)SHLIB
-	$(Q)$(CC) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
-
-%.a::
-	$(P)ARCHIVE
-	$(AR) rcs $@ $^
 
 %.o:: %.c
-	$(P)CC
-	$(Q)$(CC) $(CFLAGS) -o $@ -c $<
+	$(QUIET_CC)$(CC) $(CFLAGS) -MMD -o $@ -c $<
+
+%.so %.dll::
+	$(QUIET_LINK)$(CC) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
 clean:
-	rm -f $(target) $(objects)
+	$(QUIET_CLEAN)$(RM) $(target) $(objects) $(deps)
+
+-include $(deps)
