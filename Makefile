@@ -50,6 +50,8 @@ objects = account.o \
 	  idle.o \
 	  imgstore.o \
 	  log.o \
+	  media.o \
+	  mediamanager.o \
 	  mime.o \
 	  nat-pmp.o \
 	  network.o \
@@ -74,7 +76,12 @@ objects = account.o \
 	  stringref.o \
 	  stun.o \
 	  sound.o \
+	  sound-theme.o \
+	  sound-theme-loader.o \
 	  sslconn.o \
+	  theme.o \
+	  theme-loader.o \
+	  theme-manager.o \
 	  upnp.o \
 	  util.o \
 	  value.o \
@@ -102,6 +109,9 @@ headers := account.h \
 	   idle.h \
 	   imgstore.h \
 	   log.h \
+	   media.h \
+	   media-gst.h \
+	   mediamanager.h \
 	   mime.h \
 	   nat-pmp.h \
 	   network.h \
@@ -126,11 +136,14 @@ headers := account.h \
 	   stringref.h \
 	   stun.h \
 	   sound.h \
+	   sound-theme.h \
+	   sound-theme-loader.h \
 	   sslconn.h \
 	   upnp.h \
 	   util.h \
 	   value.h \
 	   version.h \
+	   valgrind.h \
 	   xmlnode.h \
 	   whiteboard.h
 
