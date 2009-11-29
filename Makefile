@@ -186,7 +186,7 @@ version := 2.6.0
 $(target): $(objects)
 $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
-$(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS)
+$(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm
 
 purple.pc: purple.pc.in
 	sed -e 's#@prefix@#$(prefix)#g' $@.in > $@
