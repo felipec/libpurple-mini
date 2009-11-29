@@ -170,7 +170,7 @@ endif
 
 target := libpurple.$(SHLIBEXT)
 
-.PHONY: all clean
+.PHONY: all clean version.h
 
 all: $(target)
 
@@ -181,15 +181,20 @@ QUIET_CC    = $(Q:@=@echo '   CC         '$@;)
 QUIET_LINK  = $(Q:@=@echo '   LINK       '$@;)
 QUIET_CLEAN = $(Q:@=@echo '   CLEAN      '$@;)
 
-version := 2.6.3
+version := $(shell ./get-version.sh)
+
+plugin.o: | version.h
 
 $(target): $(objects)
 $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
 $(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm
 
+version.h: version.h.in
+	./update-version $(version)
+
 purple.pc: purple.pc.in
-	sed -e 's#@prefix@#$(prefix)#g' $@.in > $@
+	sed -e 's#@prefix@#$(prefix)#g' -e 's#@version@#$(version)#g' $@.in > $@
 
 install: $(target) purple.pc
 	mkdir -p $(install_dir)/lib/pkgconfig

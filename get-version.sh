@@ -1,0 +1,11 @@
+#!/bin/sh
+
+if test -f .version
+then
+        v=`cat .version`
+else
+        v=`git describe --tags`
+fi
+
+# remove initial 'v'
+echo "$v" | sed 's/^v//'
