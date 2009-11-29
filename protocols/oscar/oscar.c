@@ -160,7 +160,6 @@ static int purple_parse_incoming_im(OscarData *, FlapConnection *, FlapFrame *, 
 static int purple_parse_misses     (OscarData *, FlapConnection *, FlapFrame *, ...);
 static int purple_parse_clientauto (OscarData *, FlapConnection *, FlapFrame *, ...);
 static int purple_parse_userinfo   (OscarData *, FlapConnection *, FlapFrame *, ...);
-static int purple_got_infoblock    (OscarData *, FlapConnection *, FlapFrame *, ...);
 static int purple_parse_motd       (OscarData *, FlapConnection *, FlapFrame *, ...);
 static int purple_chatnav_info     (OscarData *, FlapConnection *, FlapFrame *, ...);
 static int purple_conv_chat_join        (OscarData *, FlapConnection *, FlapFrame *, ...);
@@ -812,37 +811,43 @@ static void oscar_user_info_append_status(PurpleConnection *gc, PurpleNotifyUser
 
 	od = purple_connection_get_protocol_data(gc);
 
-	if (userinfo == NULL)
-		userinfo = aim_locate_finduserinfo(od, purple_buddy_get_name(b));
-
-	if ((user_info == NULL) || ((b == NULL) && (userinfo == NULL)))
+	if (b == NULL && userinfo == NULL)
 		return;
 
 	if (b == NULL)
 		b = purple_find_buddy(purple_connection_get_account(gc), userinfo->bn);
+	else
+		userinfo = aim_locate_finduserinfo(od, purple_buddy_get_name(b));
 
 	if (b) {
 		presence = purple_buddy_get_presence(b);
 		status = purple_presence_get_active_status(presence);
+	}
 
-		message = g_strdup(purple_status_get_attr_string(status, "message"));
-		itmsurl = g_strdup(purple_status_get_attr_string(status, "itmsurl"));
-
-	} else {
-		/* This is an OSCAR contact for whom we don't have a PurpleBuddy but do have information. */
-		if ((userinfo->flags & AIM_FLAG_AWAY)) {
-			/* Away message? */
-			if ((userinfo->flags & AIM_FLAG_AWAY) && (userinfo->away_len > 0) && (userinfo->away != NULL) && (userinfo->away_encoding != NULL)) {
-				tmp = oscar_encoding_extract(userinfo->away_encoding);
-				message = oscar_encoding_to_utf8(account, tmp, userinfo->away,
-												   userinfo->away_len);
-				g_free(tmp);
-			}
+	/* If we have both b and userinfo we favor userinfo, because if we're
+	   viewing someone's profile then we want the HTML away message, and
+	   the "message" attribute of the status contains only the plaintext
+	   message. */
+	if (userinfo) {
+		if ((userinfo->flags & AIM_FLAG_AWAY)
+				&& userinfo->away_len > 0
+				&& userinfo->away != NULL
+				&& userinfo->away_encoding != NULL)
+		{
+			/* Away message */
+			tmp = oscar_encoding_extract(userinfo->away_encoding);
+			message = oscar_encoding_to_utf8(account,
+					tmp, userinfo->away, userinfo->away_len);
+			g_free(tmp);
 		} else {
-			/* Available message? */
+			/*
+			 * Available message or non-HTML away message (because that's
+			 * all we have right now.
+			 */
 			if ((userinfo->status != NULL) && userinfo->status[0] != '\0') {
-				message = oscar_encoding_to_utf8(account, userinfo->status_encoding,
-											 userinfo->status, userinfo->status_len);
+				message = oscar_encoding_to_utf8(account,
+						userinfo->status_encoding, userinfo->status,
+						userinfo->status_len);
 			}
 #if defined (_WIN32) || defined (__APPLE__)
 			if (userinfo->itmsurl && (userinfo->itmsurl[0] != '\0'))
@@ -850,6 +855,9 @@ static void oscar_user_info_append_status(PurpleConnection *gc, PurpleNotifyUser
 												 userinfo->itmsurl, userinfo->itmsurl_len);
 #endif
 		}
+	} else {
+		message = g_strdup(purple_status_get_attr_string(status, "message"));
+		itmsurl = g_strdup(purple_status_get_attr_string(status, "itmsurl"));
 	}
 
 	is_away = ((status && !purple_status_is_available(status)) ||
@@ -916,7 +924,6 @@ static void oscar_user_info_append_status(PurpleConnection *gc, PurpleNotifyUser
 			g_free(message);
 			message = g_strdup(_("Offline"));
 		}
-
 	}
 
 	purple_notify_user_info_add_pair(user_info, _("Status"), message);
@@ -1478,7 +1485,6 @@ oscar_login(PurpleAccount *account)
 	oscar_data_addhandler(od, SNAC_FAMILY_LOCATE, SNAC_SUBTYPE_LOCATE_RIGHTSINFO, purple_parse_locaterights, 0);
 	oscar_data_addhandler(od, SNAC_FAMILY_LOCATE, SNAC_SUBTYPE_LOCATE_USERINFO, purple_parse_userinfo, 0);
 	oscar_data_addhandler(od, SNAC_FAMILY_LOCATE, SNAC_SUBTYPE_LOCATE_ERROR, purple_parse_locerr, 0);
-	oscar_data_addhandler(od, SNAC_FAMILY_LOCATE, SNAC_SUBTYPE_LOCATE_GOTINFOBLOCK, purple_got_infoblock, 0);
 	oscar_data_addhandler(od, SNAC_FAMILY_OSERVICE, 0x0001, purple_parse_genericerr, 0);
 	oscar_data_addhandler(od, SNAC_FAMILY_OSERVICE, 0x000f, purple_selfinfo, 0);
 	oscar_data_addhandler(od, SNAC_FAMILY_OSERVICE, 0x001f, purple_memrequest, 0);
@@ -2139,6 +2145,23 @@ static int purple_parse_oncoming(OscarData *od, FlapConnection *conn, FlapFrame 
 	g_return_val_if_fail(info != NULL, 1);
 	g_return_val_if_fail(info->bn != NULL, 1);
 
+	/*
+	 * If this is an AIM buddy and their name has formatting, set their
+	 * server alias.
+	 */
+	if (!oscar_util_valid_name_icq(info->bn)) {
+		gboolean bn_has_formatting = FALSE;
+		char *c;
+		for (c = info->bn; *c != '\0'; c++) {
+			if (!islower(*c)) {
+				bn_has_formatting = TRUE;
+				break;
+			}
+		}
+		serv_got_alias(gc, info->bn,
+				bn_has_formatting ? info->bn : NULL);
+	}
+
 	if (info->present & AIM_USERINFO_PRESENT_FLAGS) {
 		if (info->flags & AIM_FLAG_AWAY)
 			buddy_is_away = TRUE;
@@ -2388,6 +2411,21 @@ static int incomingim_chan1(OscarData *od, FlapConnection *conn, aim_userinfo_t 
 	if (purple_markup_find_tag("body", tmp, &start, &end, &attribs))
 	{
 		const char *ichattextcolor, *ichatballooncolor;
+		const char *start2, *end2;
+		GData *unused;
+
+		/*
+		 * Find the ending </body> so we can strip off the outer <html/>
+		 * and <body/>
+		 */
+		if (purple_markup_find_tag("/body", end + 1, &start2, &end2, &unused))
+		{
+			gchar *tmp2;
+			tmp2 = g_strndup(end + 1, (start2 - 1) - (end + 1) + 1);
+			g_free(tmp);
+			tmp = tmp2;
+			g_datalist_clear(&unused);
+		}
 
 		ichattextcolor = g_datalist_get_data(&attribs, "ichattextcolor");
 		if (ichattextcolor != NULL)
@@ -2836,25 +2874,46 @@ incomingim_chan4(OscarData *od, FlapConnection *conn, aim_userinfo_t *userinfo, 
 			gchar **text;
 			text = g_strsplit(args->msg, "\376", 0);
 			if (text) {
-				num = 0;
-				for (i=0; i<strlen(text[0]); i++)
-					num = num*10 + text[0][i]-48;
-				for (i=0; i<num; i++) {
-					struct name_data *data = g_new(struct name_data, 1);
-					gchar *message = g_strdup_printf(_("ICQ user %u has sent you a buddy: %s (%s)"), args->uin, text[i*2+2], text[i*2+1]);
-					data->gc = gc;
-					data->name = g_strdup(text[i*2+1]);
-					data->nick = g_strdup(text[i*2+2]);
+				/* Read the number of contacts that we were sent */
+				errno = 0;
+				num = strtoul(text[0], NULL, 10);
 
-					purple_request_action(gc, NULL, message,
-										_("Do you want to add this buddy "
-										  "to your buddy list?"),
-										PURPLE_DEFAULT_ACTION_NONE,
-										purple_connection_get_account(gc), data->name, NULL,
-										data, 2,
-										_("_Add"), G_CALLBACK(purple_icq_buddyadd),
-										_("_Decline"), G_CALLBACK(oscar_free_name_data));
-					g_free(message);
+				if (num > 0 && errno == 0) {
+					for (i=0; i<num; i++) {
+						struct name_data *data;
+						gchar *message;
+
+						if (!text[i*2 + 1] || !text[i*2 + 2]) {
+							/* We're missing the contact name or nickname.  Bail out. */
+							gchar *tmp = g_strescape(args->msg, NULL);
+							purple_debug_error("oscar", "Unknown syntax parsing "
+									"ICQ buddies.  args->msg=%s\n", tmp);
+							g_free(tmp);
+							break;
+						}
+
+						message = g_strdup_printf(_("ICQ user %u has sent you a buddy: %s (%s)"), args->uin, text[i*2+2], text[i*2+1]);
+
+						data = g_new(struct name_data, 1);
+						data->gc = gc;
+						data->name = g_strdup(text[i*2+1]);
+						data->nick = g_strdup(text[i*2+2]);
+
+						purple_request_action(gc, NULL, message,
+								_("Do you want to add this buddy "
+								  "to your buddy list?"),
+								PURPLE_DEFAULT_ACTION_NONE,
+								purple_connection_get_account(gc), data->name, NULL,
+								data, 2,
+								_("_Add"), G_CALLBACK(purple_icq_buddyadd),
+								_("_Decline"), G_CALLBACK(oscar_free_name_data));
+						g_free(message);
+					}
+				} else {
+					gchar *tmp = g_strescape(args->msg, NULL);
+					purple_debug_error("oscar", "Unknown syntax parsing "
+							"ICQ buddies.  args->msg=%s\n", tmp);
+					g_free(tmp);
 				}
 				g_strfreev(text);
 			}
@@ -3287,7 +3346,7 @@ static int purple_parse_userinfo(OscarData *od, FlapConnection *conn, FlapFrame 
 	oscar_user_info_append_extra_info(gc, user_info, NULL, userinfo);
 
 	if ((userinfo->present & AIM_USERINFO_PRESENT_ONLINESINCE) && !oscar_util_valid_name_sms(userinfo->bn)) {
-		/* An SMS contact is always online; its Online Since valid is not useful */
+		/* An SMS contact is always online; its Online Since value is not useful */
 		time_t t = userinfo->onlinesince;
 		oscar_user_info_add_pair(user_info, _("Online Since"), purple_date_format_full(localtime(&t)));
 	}
@@ -3326,55 +3385,6 @@ static int purple_parse_userinfo(OscarData *od, FlapConnection *conn, FlapFrame 
 
 	purple_notify_userinfo(gc, userinfo->bn, user_info, NULL, NULL);
 	purple_notify_user_info_destroy(user_info);
-
-	return 1;
-}
-
-static int purple_got_infoblock(OscarData *od, FlapConnection *conn, FlapFrame *fr, ...)
-{
-	PurpleConnection *gc = od->gc;
-	PurpleAccount *account = purple_connection_get_account(gc);
-	PurpleBuddy *b;
-	PurplePresence *presence;
-	PurpleStatus *status;
-	gchar *message = NULL;
-
-	va_list ap;
-	aim_userinfo_t *userinfo;
-
-	va_start(ap, fr);
-	userinfo = va_arg(ap, aim_userinfo_t *);
-	va_end(ap);
-
-	b = purple_find_buddy(account, userinfo->bn);
-	if (b == NULL)
-		return 1;
-
-	if (!oscar_util_valid_name_icq(userinfo->bn))
-	{
-		if (strcmp(purple_buddy_get_name(b), userinfo->bn) != 0)
-			serv_got_alias(gc, purple_buddy_get_name(b), userinfo->bn);
-		else
-			serv_got_alias(gc, purple_buddy_get_name(b), NULL);
-	}
-
-	presence = purple_buddy_get_presence(b);
-	status = purple_presence_get_active_status(presence);
-
-	if (purple_status_is_online(status) && !purple_status_is_available(status) &&
-			userinfo->flags & AIM_FLAG_AWAY && userinfo->away_len > 0 &&
-			userinfo->away != NULL && userinfo->away_encoding != NULL)
-	{
-		gchar *charset = oscar_encoding_extract(userinfo->away_encoding);
-		message = oscar_encoding_to_utf8(account, charset,
-		                                 userinfo->away,
-		                                 userinfo->away_len);
-		g_free(charset);
-		purple_prpl_got_user_status(account, userinfo->bn,
-				purple_status_get_id(status),
-				"message", message, NULL);
-		g_free(message);
-	}
 
 	return 1;
 }
@@ -3918,11 +3928,7 @@ static int purple_bosrights(OscarData *od, FlapConnection *conn, FlapFrame *fr, 
 	od->rights.maxpermits = (guint)maxpermits;
 	od->rights.maxdenies = (guint)maxdenies;
 
-	purple_connection_set_state(gc, PURPLE_CONNECTED);
-
 	purple_debug_info("oscar", "buddy list loaded\n");
-
-	aim_srv_clientready(od, conn);
 
 	if (purple_account_get_user_info(account) != NULL)
 		serv_set_info(gc, purple_account_get_user_info(account));
@@ -3965,6 +3971,22 @@ static int purple_bosrights(OscarData *od, FlapConnection *conn, FlapFrame *fr, 
 
 	aim_srv_requestnew(od, SNAC_FAMILY_ALERT);
 	aim_srv_requestnew(od, SNAC_FAMILY_CHATNAV);
+
+	od->bos.have_rights = TRUE;
+
+	/*
+	 * If we've already received our feedbag data then we're not waiting on
+	 * anything else, so send the server clientready.
+	 *
+	 * Normally we get bos rights before we get our feedbag data, so this
+	 * rarely (never?) happens.  And I'm not sure it actually matters if we
+	 * wait for bos rights before calling clientready.  But it seems safer
+	 * to do it this way.
+	 */
+	if (od->ssi.received_data) {
+		aim_srv_clientready(od, conn);
+		purple_connection_set_state(gc, PURPLE_CONNECTED);
+	}
 
 	return 1;
 }
@@ -5405,6 +5427,15 @@ static int purple_ssi_parselist(OscarData *od, FlapConnection *conn, FlapFrame *
 	oscar_set_icon(gc, img);
 	purple_imgstore_unref(img);
 
+	/*
+	 * If we've already received our bos rights then we're not waiting on
+	 * anything else, so send the server clientready.
+	 */
+	if (od->bos.have_rights) {
+		aim_srv_clientready(od, conn);
+		purple_connection_set_state(gc, PURPLE_CONNECTED);
+	}
+
 	return 1;
 }
 
@@ -6335,6 +6366,44 @@ oscar_ask_directim(gpointer object, gpointer ignored)
 }
 
 static void
+oscar_close_directim(gpointer object, gpointer ignored)
+{
+	PurpleBlistNode *node;
+	PurpleBuddy *buddy;
+	PurpleAccount *account;
+	PurpleConnection *gc;
+	PurpleConversation *conv;
+	OscarData *od;
+	PeerConnection *conn;
+	const char *name;
+
+	node = object;
+
+	g_return_if_fail(PURPLE_BLIST_NODE_IS_BUDDY(node));
+
+	buddy = (PurpleBuddy*)node;
+	name = purple_buddy_get_name(buddy);
+	account = purple_buddy_get_account(buddy);
+	gc = purple_account_get_connection(account);
+	od = gc->proto_data;
+	conn = peer_connection_find_by_type(od, name, OSCAR_CAPABILITY_DIRECTIM);
+
+	if (conn != NULL)
+	{
+		if (!conn->ready)
+			aim_im_sendch2_cancel(conn);
+
+		peer_connection_destroy(conn, OSCAR_DISCONNECT_LOCAL_CLOSED, NULL);
+
+		/* OSCAR_DISCONNECT_LOCAL_CLOSED doesn't write anything to the convo
+		 * window. Let the user know that we canceled the Direct IM. */
+		conv = purple_conversation_new(PURPLE_CONV_TYPE_IM, account, name);
+		purple_conversation_write(conv, NULL, _("You closed the connection."),
+		                          PURPLE_MESSAGE_SYSTEM, time(NULL));
+	}
+}
+
+static void
 oscar_get_aim_info_cb(PurpleBlistNode *node, gpointer ignore)
 {
 	PurpleBuddy *buddy;
@@ -6397,11 +6466,23 @@ oscar_buddy_menu(PurpleBuddy *buddy) {
 		oscar_util_name_compare(purple_account_get_username(account), bname) &&
 		PURPLE_BUDDY_IS_ONLINE(buddy))
 	{
+		PeerConnection *conn;
+		conn = peer_connection_find_by_type(od, bname, OSCAR_CAPABILITY_DIRECTIM);
+
 		if (userinfo->capabilities & OSCAR_CAPABILITY_DIRECTIM)
 		{
-			act = purple_menu_action_new(_("Direct IM"),
-			                           PURPLE_CALLBACK(oscar_ask_directim),
-			                           NULL, NULL);
+			if (conn)
+			{
+				act = purple_menu_action_new(_("End Direct IM Session"),
+				                          PURPLE_CALLBACK(oscar_close_directim),
+				                          NULL, NULL);
+			}
+			else
+			{
+				act = purple_menu_action_new(_("Direct IM"),
+				                          PURPLE_CALLBACK(oscar_ask_directim),
+				                          NULL, NULL);
+			}
 			menu = g_list_prepend(menu, act);
 		}
 #if 0

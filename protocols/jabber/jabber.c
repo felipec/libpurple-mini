@@ -1,7 +1,9 @@
 /*
  * purple - Jabber Protocol Plugin
  *
- * Copyright (C) 2003, Nathan Walp <faceprint@faceprint.com>
+ * Purple is the legal property of its developers, whose names are too numerous
+ * to list here.  Please refer to the COPYRIGHT file distributed with this
+ * source distribution.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -1075,53 +1077,53 @@ jabber_register_cb(JabberRegisterCBData *cbdata, PurpleRequestFields *fields)
 					return;
 				}
 			} else {
-			const char *value = purple_request_field_string_get_value(field);
+				const char *value = purple_request_field_string_get_value(field);
 
-			if(!strcmp(id, "username")) {
-				y = xmlnode_new_child(query, "username");
-			} else if(!strcmp(id, "password")) {
-				y = xmlnode_new_child(query, "password");
-			} else if(!strcmp(id, "name")) {
-				y = xmlnode_new_child(query, "name");
-			} else if(!strcmp(id, "email")) {
-				y = xmlnode_new_child(query, "email");
-			} else if(!strcmp(id, "nick")) {
-				y = xmlnode_new_child(query, "nick");
-			} else if(!strcmp(id, "first")) {
-				y = xmlnode_new_child(query, "first");
-			} else if(!strcmp(id, "last")) {
-				y = xmlnode_new_child(query, "last");
-			} else if(!strcmp(id, "address")) {
-				y = xmlnode_new_child(query, "address");
-			} else if(!strcmp(id, "city")) {
-				y = xmlnode_new_child(query, "city");
-			} else if(!strcmp(id, "state")) {
-				y = xmlnode_new_child(query, "state");
-			} else if(!strcmp(id, "zip")) {
-				y = xmlnode_new_child(query, "zip");
-			} else if(!strcmp(id, "phone")) {
-				y = xmlnode_new_child(query, "phone");
-			} else if(!strcmp(id, "url")) {
-				y = xmlnode_new_child(query, "url");
-			} else if(!strcmp(id, "date")) {
-				y = xmlnode_new_child(query, "date");
-			} else {
-				continue;
-			}
-			xmlnode_insert_data(y, value, -1);
+				if(!strcmp(id, "username")) {
+					y = xmlnode_new_child(query, "username");
+				} else if(!strcmp(id, "password")) {
+					y = xmlnode_new_child(query, "password");
+				} else if(!strcmp(id, "name")) {
+					y = xmlnode_new_child(query, "name");
+				} else if(!strcmp(id, "email")) {
+					y = xmlnode_new_child(query, "email");
+				} else if(!strcmp(id, "nick")) {
+					y = xmlnode_new_child(query, "nick");
+				} else if(!strcmp(id, "first")) {
+					y = xmlnode_new_child(query, "first");
+				} else if(!strcmp(id, "last")) {
+					y = xmlnode_new_child(query, "last");
+				} else if(!strcmp(id, "address")) {
+					y = xmlnode_new_child(query, "address");
+				} else if(!strcmp(id, "city")) {
+					y = xmlnode_new_child(query, "city");
+				} else if(!strcmp(id, "state")) {
+					y = xmlnode_new_child(query, "state");
+				} else if(!strcmp(id, "zip")) {
+					y = xmlnode_new_child(query, "zip");
+				} else if(!strcmp(id, "phone")) {
+					y = xmlnode_new_child(query, "phone");
+				} else if(!strcmp(id, "url")) {
+					y = xmlnode_new_child(query, "url");
+				} else if(!strcmp(id, "date")) {
+					y = xmlnode_new_child(query, "date");
+				} else {
+					continue;
+				}
+				xmlnode_insert_data(y, value, -1);
 				if(cbdata->js->registration && !strcmp(id, "username")) {
 					g_free(cbdata->js->user->node);
 					cbdata->js->user->node = g_strdup(value);
-			}
+				}
 				if(cbdata->js->registration && !strcmp(id, "password"))
 					purple_account_set_password(cbdata->js->gc->account, value);
+			}
 		}
-	}
 	}
 
 	if(cbdata->js->registration) {
-		username = g_strdup_printf("%s@%s/%s", cbdata->js->user->node, cbdata->js->user->domain,
-				cbdata->js->user->resource);
+		username = g_strdup_printf("%s@%s%s%s", cbdata->js->user->node, cbdata->js->user->domain,
+			cbdata->js->user->resource ? "/" : "", cbdata->js->user->resource);
 		purple_account_set_username(cbdata->js->gc->account, username);
 		g_free(username);
 	}
@@ -1603,12 +1605,9 @@ void jabber_stream_set_state(JabberStream *js, JabberStreamState state)
 				jabber_auth_start_old(js);
 			}
 			break;
-		case JABBER_STREAM_REINITIALIZING:
+		case JABBER_STREAM_POST_AUTH:
 			purple_connection_update_progress(js->gc, _("Re-initializing Stream"),
 					(js->gsc ? 8 : 4), JABBER_CONNECT_STEPS);
-
-			/* The stream will be reinitialized later, in jabber_recv_cb_ssl() */
-			js->reinit = TRUE;
 
 			break;
 		case JABBER_STREAM_CONNECTED:
@@ -3302,7 +3301,7 @@ void jabber_register_commands(void)
 	                  PURPLE_CMD_FLAG_CHAT | PURPLE_CMD_FLAG_PRPL_ONLY |
 	                  PURPLE_CMD_FLAG_ALLOW_WRONG_ARGS, "prpl-jabber",
 	                  jabber_cmd_chat_role,
-	                  _("role &lt;moderator|participant|visitor|none&gt; [nick1] [nick2] ...: Get the users with an role or set users' role with the room."),
+	                  _("role &lt;moderator|participant|visitor|none&gt; [nick1] [nick2] ...: Get the users with a role or set users' role with the room."),
 	                  NULL);
 	jabber_cmds = g_slist_prepend(jabber_cmds, GUINT_TO_POINTER(id));
 
