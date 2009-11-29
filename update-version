@@ -1,9 +1,8 @@
 #!/bin/bash
 
-version=${1%%-*}
-v=${version//./ };
-array=( $v )
+version=$(./get-version)
+IFS=".-" read major minor micro _ <<< "$version"
 
-sed -e "s/@PURPLE_MAJOR_VERSION@/${array[0]}/g" \
-        -e "s/@PURPLE_MINOR_VERSION@/${array[1]}/g" \
-        -e "s/@PURPLE_MICRO_VERSION@/${array[2]}/g" version.h.in > version.h
+sed -e "s/@PURPLE_MAJOR_VERSION@/$major/g" \
+        -e "s/@PURPLE_MINOR_VERSION@/$minor/g" \
+        -e "s/@PURPLE_MICRO_VERSION@/$micro/g" version.h.in > version.h

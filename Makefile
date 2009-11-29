@@ -181,7 +181,7 @@ QUIET_CC    = $(Q:@=@echo '   CC         '$@;)
 QUIET_LINK  = $(Q:@=@echo '   LINK       '$@;)
 QUIET_CLEAN = $(Q:@=@echo '   CLEAN      '$@;)
 
-version := $(shell ./get-version.sh)
+version := $(shell ./get-version)
 
 plugin.o: | version.h
 
@@ -191,7 +191,7 @@ $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 $(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm
 
 version.h: version.h.in
-	./update-version $(version)
+	./update-version
 
 purple.pc: purple.pc.in
 	sed -e 's#@prefix@#$(prefix)#g' -e 's#@version@#$(version)#g' $@.in > $@
