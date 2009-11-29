@@ -11,6 +11,9 @@ LIBXML_LIBS := $(shell pkg-config --libs libxml-2.0)
 CFLAGS := -O2 -ggdb -Wall
 LDFLAGS := -Wl,--no-undefined
 
+prefix := /usr
+install_dir := $(DESTDIR)/$(prefix)
+
 datadir := /usr/share
 libdir := /usr/lib
 sysconfdir := /etc
@@ -73,6 +76,58 @@ objects = account.o \
 	  xmlnode.o \
 	  whiteboard.o
 
+headers := account.h \
+	   accountopt.h \
+	   blist.h \
+	   buddyicon.h \
+	   certificate.h \
+	   cipher.h \
+	   circbuffer.h \
+	   cmds.h \
+	   connection.h \
+	   conversation.h \
+	   core.h \
+	   dbus-maybe.h \
+	   debug.h \
+	   desktopitem.h \
+	   eventloop.h \
+	   ft.h \
+	   gaim-compat.h \
+	   idle.h \
+	   imgstore.h \
+	   log.h \
+	   mime.h \
+	   nat-pmp.h \
+	   network.h \
+	   notify.h \
+	   ntlm.h \
+	   plugin.h \
+	   pluginpref.h \
+	   pounce.h \
+	   prefs.h \
+	   privacy.h \
+	   proxy.h \
+	   prpl.h \
+	   request.h \
+	   roomlist.h \
+	   savedstatuses.h \
+	   server.h \
+	   signals.h \
+	   smiley.h \
+	   dnsquery.h \
+	   dnssrv.h \
+	   status.h \
+	   stringref.h \
+	   stun.h \
+	   sound.h \
+	   sslconn.h \
+	   upnp.h \
+	   util.h \
+	   value.h \
+	   version.h \
+	   xmlnode.h \
+	   whiteboard.h
+
 sources := $(patsubst %.o,%.c,$(objects))
 deps := $(patsubst %.o,%.d,$(objects))
 
@@ -100,6 +155,17 @@ $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
 $(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS)
 
+purple.pc: purple.pc.in
+	sed -e 's#@prefix@#$(prefix)#g' $@.in > $@
+
+install: $(target) purple.pc
+	mkdir -p $(install_dir)/lib/pkgconfig
+	mkdir -p $(install_dir)/include/libpurple
+	install -m 644 $(target) $(install_dir)/lib/$(target).0
+	ln -sf $(target).0 $(install_dir)/lib/$(target)
+	install -m 644 purple.pc $(install_dir)/lib/pkgconfig
+	install -m 644 $(headers) $(install_dir)/include/libpurple/
+	install -m 644 purple-client.h $(install_dir)/include/libpurple/purple.h
 
 %.o:: %.c
 	$(QUIET_CC)$(CC) $(CFLAGS) -MMD -o $@ -c $<
