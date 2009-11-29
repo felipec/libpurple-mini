@@ -70,6 +70,7 @@ oscar_data_new(void)
 	/* missing 0x14 */
 	aim__registermodule(od, icq_modfirst);
 	/* missing 0x16 */
+	/* auth_modfirst is only needed if we're connecting with the old-style BUCP login */
 	aim__registermodule(od, auth_modfirst);
 	aim__registermodule(od, email_modfirst);
 
@@ -86,19 +87,15 @@ oscar_data_destroy(OscarData *od)
 {
 	aim_cleansnacs(od, -1);
 
+	/* Only used when connecting with clientLogin */
+	if (od->url_data != NULL)
+		purple_util_fetch_url_cancel(od->url_data);
+
 	while (od->requesticon)
 	{
 		g_free(od->requesticon->data);
 		od->requesticon = g_slist_delete_link(od->requesticon, od->requesticon);
 	}
-	while (od->statusnotes_queue)
-	{
-		g_free(od->statusnotes_queue->data);
-		od->statusnotes_queue = g_slist_delete_link(od->statusnotes_queue,
-				od->statusnotes_queue);
-	}
-	if (od->statusnotes_queue_timer > 0)
-		purple_timeout_remove(od->statusnotes_queue_timer);
 	g_free(od->email);
 	g_free(od->newp);
 	g_free(od->oldp);

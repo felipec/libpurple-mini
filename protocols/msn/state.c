@@ -21,6 +21,10 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
  */
+
+#include "internal.h"
+#include "core.h"
+
 #include "msn.h"
 #include "state.h"
 
@@ -169,7 +173,7 @@ msn_get_currentmedia(char *xml_str, gsize len)
 	}
 	currentmediaNode = xmlnode_get_child(payloadNode, "CurrentMedia");
 	if (currentmediaNode == NULL) {
-		purple_debug_info("msn", "No CurrentMedia Node");
+		purple_debug_info("msn", "No CurrentMedia Node\n");
 		xmlnode_free(payloadNode);
 		return NULL;
 	}
@@ -189,13 +193,13 @@ msn_get_psm(char *xml_str, gsize len)
 
 	purple_debug_info("msn", "msn get PSM\n");
 	payloadNode = xmlnode_from_str(xml_str, len);
-	if (!payloadNode){
+	if (!payloadNode) {
 		purple_debug_error("msn", "PSM XML parse Error!\n");
 		return NULL;
 	}
 	psmNode = xmlnode_get_child(payloadNode, "PSM");
-	if (psmNode == NULL){
-		purple_debug_info("msn", "No PSM status Node");
+	if (psmNode == NULL) {
+		purple_debug_info("msn", "No PSM status Node\n");
 		xmlnode_free(payloadNode);
 		return NULL;
 	}
@@ -213,7 +217,7 @@ create_media_string(PurplePresence *presence)
 	char *ret;
 	PurpleStatus *status = purple_presence_get_status(presence, "tune");
 	if (!status || !purple_status_is_active(status))
-		return g_strdup_printf("\\0Music\\00\\0\\0");
+		return NULL;
 
 	title = purple_status_get_attr_string(status, PURPLE_TUNE_TITLE);
 	game = purple_status_get_attr_string(status, "game");
@@ -234,7 +238,7 @@ create_media_string(PurplePresence *presence)
 	else if (office && *office)
 		ret = g_strdup_printf("\\0Office\\01\\0Editing {0}\\0%s\\0", office);
 	else
-		ret = g_strdup_printf("\\0Music\\00\\0\\0");
+		ret = NULL;
 
 	return ret;
 }
@@ -245,7 +249,7 @@ create_media_string(PurplePresence *presence)
 void
 msn_set_psm(MsnSession *session)
 {
-	PurpleAccount *account = session->account;
+	PurpleAccount *account;
 	PurplePresence *presence;
 	PurpleStatus *status;
 	MsnCmdProc *cmdproc;
@@ -257,6 +261,7 @@ msn_set_psm(MsnSession *session)
 	g_return_if_fail(session != NULL);
 	g_return_if_fail(session->notification != NULL);
 
+	account = session->account;
 	cmdproc = session->notification->cmdproc;
 
 	/* Get the PSM string from Purple's Status Line */
@@ -288,9 +293,28 @@ msn_change_status(MsnSession *session)
 	MsnUser *user;
 	MsnObject *msnobj;
 	const char *state_text;
+	GHashTable *ui_info = purple_core_get_ui_info();
+	MsnClientCaps caps = MSN_CLIENT_ID;
 
 	g_return_if_fail(session != NULL);
 	g_return_if_fail(session->notification != NULL);
+
+	/* set client caps based on what the UI tells us it is... */
+	if (ui_info) {
+		const gchar *client_type = g_hash_table_lookup(ui_info, "client_type");
+		if (client_type) {
+			if (strcmp(client_type, "phone") == 0 ||
+				strcmp(client_type, "handheld") == 0) {
+				caps |= MSN_CLIENT_CAP_WIN_MOBILE;
+			} else if (strcmp(client_type, "web") == 0) {
+				caps |= MSN_CLIENT_CAP_WEBMSGR;
+			} else if (strcmp(client_type, "bot") == 0) {
+				caps |= MSN_CLIENT_CAP_BOT;
+			}
+			/* MSN doesn't a "console" type... 
+			 What, they have no ncurses UI? :-) */
+		}
+	}
 
 	account = session->account;
 	cmdproc = session->notification->cmdproc;
@@ -307,8 +331,7 @@ msn_change_status(MsnSession *session)
 
 	if (msnobj == NULL)
 	{
-		msn_cmdproc_send(cmdproc, "CHG", "%s %d", state_text,
-						 MSN_CLIENT_ID);
+		msn_cmdproc_send(cmdproc, "CHG", "%s %d", state_text, caps);
 	}
 	else
 	{
@@ -317,7 +340,7 @@ msn_change_status(MsnSession *session)
 		msnobj_str = msn_object_to_string(msnobj);
 
 		msn_cmdproc_send(cmdproc, "CHG", "%s %d %s", state_text,
-						 MSN_CLIENT_ID, purple_url_encode(msnobj_str));
+						 caps, purple_url_encode(msnobj_str));
 
 		g_free(msnobj_str);
 	}

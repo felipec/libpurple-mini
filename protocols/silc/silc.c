@@ -48,19 +48,19 @@ silcpurple_away_states(PurpleAccount *account)
 	PurpleStatusType *type;
 	GList *types = NULL;
 
-	type = purple_status_type_new_full(PURPLE_STATUS_AVAILABLE, SILCPURPLE_STATUS_ID_AVAILABLE, NULL, FALSE, TRUE, FALSE);
+	type = purple_status_type_new_full(PURPLE_STATUS_AVAILABLE, SILCPURPLE_STATUS_ID_AVAILABLE, NULL, TRUE, TRUE, FALSE);
 	types = g_list_append(types, type);
-	type = purple_status_type_new_full(PURPLE_STATUS_AVAILABLE, SILCPURPLE_STATUS_ID_HYPER, _("Hyper Active"), FALSE, TRUE, FALSE);
+	type = purple_status_type_new_full(PURPLE_STATUS_AVAILABLE, SILCPURPLE_STATUS_ID_HYPER, _("Hyper Active"), TRUE, TRUE, FALSE);
 	types = g_list_append(types, type);
-	type = purple_status_type_new_full(PURPLE_STATUS_AWAY, SILCPURPLE_STATUS_ID_AWAY, NULL, FALSE, TRUE, FALSE);
+	type = purple_status_type_new_full(PURPLE_STATUS_AWAY, SILCPURPLE_STATUS_ID_AWAY, NULL, TRUE, TRUE, FALSE);
 	types = g_list_append(types, type);
-	type = purple_status_type_new_full(PURPLE_STATUS_UNAVAILABLE, SILCPURPLE_STATUS_ID_BUSY, _("Busy"), FALSE, TRUE, FALSE);
+	type = purple_status_type_new_full(PURPLE_STATUS_UNAVAILABLE, SILCPURPLE_STATUS_ID_BUSY, _("Busy"), TRUE, TRUE, FALSE);
 	types = g_list_append(types, type);
-	type = purple_status_type_new_full(PURPLE_STATUS_AWAY, SILCPURPLE_STATUS_ID_INDISPOSED, _("Indisposed"), FALSE, TRUE, FALSE);
+	type = purple_status_type_new_full(PURPLE_STATUS_AWAY, SILCPURPLE_STATUS_ID_INDISPOSED, _("Indisposed"), TRUE, TRUE, FALSE);
 	types = g_list_append(types, type);
-	type = purple_status_type_new_full(PURPLE_STATUS_AWAY, SILCPURPLE_STATUS_ID_PAGE, _("Wake Me Up"), FALSE, TRUE, FALSE);
+	type = purple_status_type_new_full(PURPLE_STATUS_AWAY, SILCPURPLE_STATUS_ID_PAGE, _("Wake Me Up"), TRUE, TRUE, FALSE);
 	types = g_list_append(types, type);
-	type = purple_status_type_new_full(PURPLE_STATUS_OFFLINE, SILCPURPLE_STATUS_ID_OFFLINE, NULL, FALSE, TRUE, FALSE);
+	type = purple_status_type_new_full(PURPLE_STATUS_OFFLINE, SILCPURPLE_STATUS_ID_OFFLINE, NULL, TRUE, TRUE, FALSE);
 	types = g_list_append(types, type);
 
 	return types;
@@ -325,7 +325,7 @@ silcpurple_connect_cb(SilcClient client, SilcClientConnection conn,
 
 	case SILC_CLIENT_CONN_ERROR:
 		purple_connection_error_reason(gc, PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-		                             _("Error during connecting to SILC Server"));
+		                             _("Error connecting to SILC Server"));
 		g_unlink(silcpurple_session_file(purple_account_get_username(sg->account)));
 		break;
 
@@ -348,7 +348,7 @@ silcpurple_connect_cb(SilcClient client, SilcClientConnection conn,
 
 	case SILC_CLIENT_CONN_ERROR_TIMEOUT:
 		purple_connection_error_reason(gc, PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-		                             _("Connection Timeout"));
+		                             _("Connection timed out"));
 		break;
 	}
 
@@ -447,7 +447,7 @@ static void silcpurple_continue_running(SilcPurple sg)
 				 silcpurple_login_connected, gc) == NULL)
 	{
 		purple_connection_error_reason(gc, PURPLE_CONNECTION_ERROR_NETWORK_ERROR,
-		                             _("Unable to create connection"));
+		                             _("Unable to connect"));
 		gc->proto_data = NULL;
 		silc_free(sg);
 		return;
@@ -490,7 +490,7 @@ static void silcpurple_got_password_cb(PurpleConnection *gc, PurpleRequestFields
 				password,
 				&sg->public_key, &sg->private_key)) {
 		purple_connection_error_reason(gc, PURPLE_CONNECTION_ERROR_OTHER_ERROR,
-		                             _("Could not load SILC key pair"));
+		                             _("Unable to load SILC key pair"));
 		gc->proto_data = NULL;
 		silc_free(sg);
 		return;
@@ -506,7 +506,7 @@ static void silcpurple_no_password_cb(PurpleConnection *gc, PurpleRequestFields 
 		return;
 	sg = gc->proto_data;
 	purple_connection_error_reason(gc, PURPLE_CONNECTION_ERROR_OTHER_ERROR,
-			_("Could not load SILC key pair"));
+			_("Unable to load SILC key pair"));
 	gc->proto_data = NULL;
 	silc_free(sg);
 }
@@ -535,7 +535,7 @@ static void silcpurple_running(SilcClient client, void *context)
 			return;
 		}
 		purple_connection_error_reason(gc, PURPLE_CONNECTION_ERROR_OTHER_ERROR,
-		                             _("Could not load SILC key pair"));
+		                             _("Unable to load SILC key pair"));
 		gc->proto_data = NULL;
 		silc_free(sg);
 		return;
@@ -617,7 +617,7 @@ silcpurple_login(PurpleAccount *account)
 	if (!silc_client_init(client, username, hostname, realname,
 			      silcpurple_running, sg)) {
 		purple_connection_error_reason(gc, PURPLE_CONNECTION_ERROR_OTHER_ERROR,
-		                             _("Cannot initialize SILC protocol"));
+		                             _("Unable to initialize SILC protocol"));
 		gc->proto_data = NULL;
 		silc_free(sg);
 		silc_free(hostname);
@@ -1357,6 +1357,7 @@ silcpurple_send_im_resolved(SilcClient client,
 	char tmp[256];
 	SilcClientEntry client_entry;
 	SilcDList list;
+	gboolean free_list = FALSE;
 
 	convo = purple_find_conversation_with_account(PURPLE_CONV_TYPE_IM, im->nick,
 						      sg->account);
@@ -1373,6 +1374,8 @@ silcpurple_send_im_resolved(SilcClient client,
 							im->nick, FALSE);
 		if (!clients)
 			goto err;
+
+		free_list = TRUE;
 	}
 
 	silc_dlist_start(clients);
@@ -1413,6 +1416,9 @@ silcpurple_send_im_resolved(SilcClient client,
 	purple_conversation_write(convo, NULL, tmp, PURPLE_MESSAGE_SYSTEM, time(NULL));
 
  out:
+	if (free_list) {
+		silc_client_list_free(client, conn, clients);
+	}
 	g_free(im->nick);
 	g_free(im->message);
 	silc_free(im);
@@ -2103,13 +2109,13 @@ static PurplePluginProtocolInfo prpl_info =
 	&silcpurple_wb_ops,			/* whiteboard_prpl_ops */
 	NULL,					/* send_raw */
 	NULL,				        /* roomlist_room_serialize */
-
-	/* padding */
-	NULL,
-	NULL,
-	NULL,
+	NULL,				        /* unregister_user */
+	NULL,				        /* send_attention */
+	NULL,				        /* get_attention_types */
 	sizeof(PurplePluginProtocolInfo),       /* struct_size */
-	NULL
+	NULL,				        /* get_account_text_table */
+	NULL,				        /* initiate_media */
+	NULL                        /* can_do_media */
 };
 
 static PurplePluginInfo info =

@@ -27,7 +27,6 @@
 #ifndef _PURPLE_ACCOUNT_H_
 #define _PURPLE_ACCOUNT_H_
 
-#include <glib-object.h>
 #include <glib.h>
 #include <glib-object.h>
 
@@ -43,6 +42,7 @@ typedef void (*PurpleAccountUnregistrationCb)(PurpleAccount *account, gboolean s
 
 #include "connection.h"
 #include "log.h"
+#include "privacy.h"
 #include "proxy.h"
 #include "prpl.h"
 #include "status.h"
@@ -132,9 +132,17 @@ struct _PurpleAccount
 								/*   to NULL when the account inherits      */
 								/*   proxy settings from global prefs.      */
 
+	/*
+	 * TODO: Supplementing the next two linked lists with hash tables
+	 * should help performance a lot when these lists are long.  This
+	 * matters quite a bit for protocols like MSN, where all your
+	 * buddies are added to your permit list.  Currently we have to
+	 * iterate through the entire list if we want to check if someone
+	 * is permitted or denied.  We should do this for 3.0.0.
+	 */
 	GSList *permit;             /**< Permit list.                           */
 	GSList *deny;               /**< Deny list.                             */
-	int perm_deny;              /**< The permit/deny setting.               */
+	PurplePrivacyType perm_deny;  /**< The permit/deny setting.               */
 
 	GList *status_types;        /**< Status types.                          */
 
@@ -253,7 +261,7 @@ void purple_account_request_add(PurpleAccount *account, const char *remote_user,
  * Notifies the user that a remote user has wants to add the local user
  * to his or her buddy list and requires authorization to do so.
  *
- * This will present a dialog informing the user of this and ask if the 
+ * This will present a dialog informing the user of this and ask if the
  * user authorizes or denies the remote user from adding him.
  *
  * @param account      The account that was added
@@ -449,6 +457,16 @@ void purple_account_set_status_list(PurpleAccount *account,
  * @param account The account.
  */
 void purple_account_clear_settings(PurpleAccount *account);
+
+/**
+ * Removes an account-specific setting by name.
+ *
+ * @param account The account.
+ * @param setting The setting to remove.
+ *
+ * @since 2.6.0
+ */
+void purple_account_remove_setting(PurpleAccount *account, const char *setting);
 
 /**
  * Sets a protocol-specific integer setting for an account.

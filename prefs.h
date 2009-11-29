@@ -30,17 +30,17 @@
 #include <glib.h>
 
 /**
- * Pref data types.
+ * Preference data types.
  */
 typedef enum _PurplePrefType
 {
-	PURPLE_PREF_NONE,
-	PURPLE_PREF_BOOLEAN,
-	PURPLE_PREF_INT,
-	PURPLE_PREF_STRING,
-	PURPLE_PREF_STRING_LIST,
-	PURPLE_PREF_PATH,
-	PURPLE_PREF_PATH_LIST
+	PURPLE_PREF_NONE,        /**< No type.         */
+	PURPLE_PREF_BOOLEAN,     /**< Boolean.         */
+	PURPLE_PREF_INT,         /**< Integer.         */
+	PURPLE_PREF_STRING,      /**< String.          */
+	PURPLE_PREF_STRING_LIST, /**< List of strings. */
+	PURPLE_PREF_PATH,        /**< Path.            */
+	PURPLE_PREF_PATH_LIST    /**< List of paths.   */
 
 } PurplePrefType;
 
@@ -67,8 +67,8 @@ extern "C" {
 #endif
 
 /**************************************************************************/
-/** @name Prefs API                                                       
-    Preferences are named according to a directory-like structure.        
+/** @name Prefs API
+    Preferences are named according to a directory-like structure.
     Example: "/plugins/core/potato/is_from_idaho" (probably a boolean)    */
 /**************************************************************************/
 /*@{*/
@@ -315,6 +315,15 @@ GList *purple_prefs_get_children_names(const char *name);
 
 /**
  * Add a callback to a pref (and its children)
+ *
+ * @param handle   The handle of the receiver.
+ * @param name     The name of the preference
+ * @param cb       The callback function
+ * @param data     The data to pass to the callback function.
+ *
+ * @return An id to disconnect the callback
+ *
+ * @see purple_prefs_disconnect_callback
  */
 guint purple_prefs_connect_callback(void *handle, const char *name, PurplePrefCallback cb,
 		gpointer data);

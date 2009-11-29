@@ -78,7 +78,8 @@ static void irc_connected(struct irc_conn *irc, const char *nick)
 {
 	PurpleConnection *gc;
 	PurpleStatus *status;
-	PurpleBlistNode *gnode, *cnode, *bnode;
+	GSList *buddies;
+	PurpleAccount *account;
 
 	if ((gc = purple_account_get_connection(irc->account)) == NULL
 	    || PURPLE_CONNECTION_IS_CONNECTED(gc))
@@ -86,6 +87,7 @@ static void irc_connected(struct irc_conn *irc, const char *nick)
 
 	purple_connection_set_display_name(gc, nick);
 	purple_connection_set_state(gc, PURPLE_CONNECTED);
+	account = purple_connection_get_account(gc);
 
 	/* If we're away then set our away message */
 	status = purple_account_get_active_status(irc->account);
@@ -95,29 +97,19 @@ static void irc_connected(struct irc_conn *irc, const char *nick)
 	}
 
 	/* this used to be in the core, but it's not now */
-	for (gnode = purple_get_blist()->root; gnode; gnode = gnode->next) {
-		if(!PURPLE_BLIST_NODE_IS_GROUP(gnode))
-			continue;
-		for(cnode = gnode->child; cnode; cnode = cnode->next) {
-			if(!PURPLE_BLIST_NODE_IS_CONTACT(cnode))
-				continue;
-			for(bnode = cnode->child; bnode; bnode = bnode->next) {
-				PurpleBuddy *b;
-				if(!PURPLE_BLIST_NODE_IS_BUDDY(bnode))
-					continue;
-				b = (PurpleBuddy *)bnode;
-				if(b->account == gc->account) {
-					struct irc_buddy *ib = g_new0(struct irc_buddy, 1);
-					ib->name = g_strdup(b->name);
-					g_hash_table_insert(irc->buddies, ib->name, ib);
-				}
-			}
-		}
+	for (buddies = purple_find_buddies(account, NULL); buddies;
+			buddies = g_slist_delete_link(buddies, buddies))
+	{
+		PurpleBuddy *b = buddies->data;
+		struct irc_buddy *ib = g_new0(struct irc_buddy, 1);
+		ib->name = g_strdup(purple_buddy_get_name(b));
+		ib->ref = 1;
+		g_hash_table_replace(irc->buddies, ib->name, ib);
 	}
 
 	irc_blist_timeout(irc);
 	if (!irc->timer)
-		irc->timer = purple_timeout_add(45000, (GSourceFunc)irc_blist_timeout, (gpointer)irc);
+		irc->timer = purple_timeout_add_seconds(45, (GSourceFunc)irc_blist_timeout, (gpointer)irc);
 }
 
 void irc_msg_default(struct irc_conn *irc, const char *name, const char *from, char **args)
@@ -325,7 +317,11 @@ void irc_msg_whois(struct irc_conn *irc, const char *name, const char *from, cha
 		if (args[3])
 			irc->whois.signon = (time_t)atoi(args[3]);
 	} else if (!strcmp(name, "319")) {
-		irc->whois.channels = g_strdup(args[2]);
+		if (irc->whois.channels == NULL) {
+			irc->whois.channels = g_string_new(args[2]);
+		} else {
+			irc->whois.channels = g_string_append(irc->whois.channels, args[2]);
+		}
 	} else if (!strcmp(name, "320")) {
 		irc->whois.identified = 1;
 	}
@@ -380,8 +376,8 @@ void irc_msg_endwhois(struct irc_conn *irc, const char *name, const char *from, 
 		g_free(irc->whois.serverinfo);
 	}
 	if (irc->whois.channels) {
-		purple_notify_user_info_add_pair(user_info, _("Currently on"), irc->whois.channels);
-		g_free(irc->whois.channels);
+		purple_notify_user_info_add_pair(user_info, _("Currently on"), irc->whois.channels->str);
+		g_string_free(irc->whois.channels, TRUE);
 	}
 	if (irc->whois.idle) {
 		gchar *timex = purple_str_seconds_to_string(irc->whois.idle);
@@ -989,9 +985,24 @@ void irc_msg_badnick(struct irc_conn *irc, const char *name, const char *from, c
 void irc_msg_nickused(struct irc_conn *irc, const char *name, const char *from, char **args)
 {
 	char *newnick, *buf, *end;
+	PurpleConnection *gc = purple_account_get_connection(irc->account);
 
 	if (!args || !args[1])
 		return;
+
+	if (gc && purple_connection_get_state(gc) == PURPLE_CONNECTED) {
+		/* We only want to do the following dance if the connection
+		   has not been successfully completed.  If it has, just
+		   notify the user that their /nick command didn't go. */
+		buf = g_strdup_printf(_("The nickname \"%s\" is already being used."),
+				      irc->reqnick);
+		purple_notify_error(gc, _("Nickname in use"),
+				    _("Nickname in use"), buf);
+		g_free(buf);
+		g_free(irc->reqnick);
+		irc->reqnick = NULL;
+		return;
+	}
 
 	if (strlen(args[1]) < strlen(irc->reqnick) || irc->nickused)
 		newnick = g_strdup(args[1]);
@@ -1163,7 +1174,7 @@ static void irc_msg_handle_privmsg(struct irc_conn *irc, const char *name, const
 	if (!purple_utf8_strcasecmp(to, purple_connection_get_display_name(gc))) {
 		serv_got_im(gc, nick, msg, 0, time(NULL));
 	} else {
-		convo = purple_find_conversation_with_account(PURPLE_CONV_TYPE_CHAT, to, irc->account);
+		convo = purple_find_conversation_with_account(PURPLE_CONV_TYPE_CHAT, irc_nick_skip_mode(irc, to), irc->account);
 		if (convo)
 			serv_got_chat_in(gc, purple_conv_chat_get_id(PURPLE_CONV_CHAT(convo)), nick, 0, msg, time(NULL));
 		else

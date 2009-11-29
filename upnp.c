@@ -130,7 +130,7 @@ typedef struct {
 	guint tima;	/* purple_timeout_add handle */
 	int fd;
 	struct sockaddr_in server;
-	gchar service_type[25];
+	gchar service_type[20];
 	int retry_count;
 	gchar *full_url;
 } UPnPDiscoveryData;
@@ -567,7 +567,7 @@ static void
 purple_upnp_discover_send_broadcast(UPnPDiscoveryData *dd)
 {
 	gchar *sendMessage = NULL;
-	gsize totalSize;
+	size_t totalSize;
 	gboolean sentSuccess;
 
 	/* because we are sending over UDP, if there is a failure
@@ -693,6 +693,7 @@ purple_upnp_generate_action_message_and_send(const gchar* actionName,
 		/* XXX: This should probably be async */
 		if(cb)
 			cb(NULL, cb_data, NULL, 0, NULL);
+		return NULL;
 	}
 	if(port == 0 || port == -1) {
 		port = DEFAULT_HTTP_PORT;
@@ -711,11 +712,11 @@ purple_upnp_generate_action_message_and_send(const gchar* actionName,
 	g_free(soapMessage);
 
 	gfud = purple_util_fetch_url_request_len(control_info.control_url, FALSE, NULL, TRUE,
-				totalSendMessage,  TRUE, MAX_UPNP_DOWNLOAD, cb, cb_data);
+				totalSendMessage, TRUE, MAX_UPNP_DOWNLOAD, cb, cb_data);
 
 	g_free(totalSendMessage);
 	g_free(addressOfControl);
-	
+
 	return gfud;
 }
 
@@ -806,7 +807,7 @@ looked_up_internal_ip_cb(gpointer data, gint source, const gchar *error_message)
 				control_info.internalip);
 		close(source);
 	} else
-		purple_debug_info("upnp", "Unable to look up local IP\n");
+		purple_debug_error("upnp", "Unable to look up local IP\n");
 
 }
 
@@ -1048,7 +1049,7 @@ static void*
 purple_upnp_get_handle(void)
 {
 	static int handle;
-	
+
 	return &handle;
 }
 

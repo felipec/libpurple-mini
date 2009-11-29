@@ -6,6 +6,8 @@ pkgdir = $(libdir)/purple-$(PURPLE_MAJOR_VERSION)
 QQSOURCES = \
 	buddy_info.c \
 	buddy_info.h \
+	buddy_memo.c \
+	buddy_memo.h \
 	buddy_list.c \
 	buddy_list.h \
 	buddy_opt.c \
@@ -69,6 +71,10 @@ libqq_la_LIBADD  = $(GLIB_LIBS)
 
 endif
 
+# QQ_BUDDY_ICON_DIR is the path where a bunch of stock icons can be
+# places for users to choose from when setting their buddy icon.  We
+# don't distribute those icons ourselves because of possibly copyright
+# concerns, but distributions might want to put icons here.
 AM_CPPFLAGS = \
 	-I$(top_srcdir)/libpurple \
 	-I$(top_builddir)/libpurple \

@@ -47,6 +47,7 @@ struct _PurpleProxyConnectData {
 	gchar *host;
 	int port;
 	int fd;
+	int socket_type;
 	guint inpa;
 	PurpleProxyInfo *gpi;
 	PurpleDnsQueryData *query_data;
@@ -207,6 +208,16 @@ purple_global_proxy_get_info(void)
 	return global_proxy_info;
 }
 
+void
+purple_global_proxy_set_info(PurpleProxyInfo *info)
+{
+	g_return_if_fail(info != NULL);
+
+	purple_proxy_info_destroy(global_proxy_info);
+
+	global_proxy_info = info;
+}
+
 static PurpleProxyInfo *
 purple_gnome_proxy_get_info(void)
 {
@@ -228,13 +239,13 @@ purple_gnome_proxy_get_info(void)
 	g_free(err);
 	err = NULL;
 
-	if (!strcmp(tmp, "none\n")) {
+	if (purple_strequal(tmp, "none\n")) {
 		info.type = PURPLE_PROXY_NONE;
 		g_free(tmp);
 		return &info;
 	}
 
-	if (strcmp(tmp, "manual\n")) {
+	if (purple_strequal(tmp, "manual\n")) {
 		/* Unknown setting.  Fallback to using our global proxy settings. */
 		g_free(tmp);
 		return purple_global_proxy_get_info();
@@ -263,7 +274,7 @@ purple_gnome_proxy_get_info(void)
 	g_free(err);
 	err = NULL;
 
-	if (!strcmp(tmp, "true\n"))
+	if (purple_strequal(tmp, "true\n"))
 		use_same_proxy = TRUE;
 	g_free(tmp);
 	tmp = NULL;
@@ -392,7 +403,7 @@ purple_win32_proxy_get_info(void)
 		MyWinHttpGetIEProxyConfig = (LPFNWINHTTPGETIEPROXYCONFIG)
 			wpurple_find_and_loadproc("winhttp.dll", "WinHttpGetIEProxyConfigForCurrentUser");
 		if (!MyWinHttpGetIEProxyConfig)
-			purple_debug_info("proxy", "Unable to read Windows Proxy Settings.\n");
+			purple_debug_warning("proxy", "Unable to read Windows Proxy Settings.\n");
 	}
 
 	if (!MyWinHttpGetIEProxyConfig)
@@ -561,7 +572,7 @@ purple_proxy_connect_data_disconnect(PurpleProxyConnectData *connect_data, const
 
 	if (error_message != NULL)
 	{
-		purple_debug_info("proxy", "Connection attempt failed: %s\n",
+		purple_debug_error("proxy", "Connection attempt failed: %s\n",
 				error_message);
 		if (connect_data->hosts != NULL)
 			try_connect(connect_data);
@@ -595,6 +606,9 @@ purple_proxy_connect_data_disconnect_formatted(PurpleProxyConnectData *connect_d
 static void
 purple_proxy_connect_data_connected(PurpleProxyConnectData *connect_data)
 {
+	purple_debug_info("proxy", "Connected to %s:%d.\n",
+	                  connect_data->host, connect_data->port);
+
 	connect_data->connect_cb(connect_data->data, connect_data->fd, NULL);
 
 	/*
@@ -647,7 +661,7 @@ socket_ready_cb(gpointer data, gint source, PurpleInputCondition cond)
 	if (ret != 0 || error != 0) {
 		if (ret != 0)
 			error = errno;
-		purple_debug_info("proxy", "Error connecting to %s:%d (%s).\n",
+		purple_debug_error("proxy", "Error connecting to %s:%d (%s).\n",
 						connect_data->host, connect_data->port, g_strerror(error));
 
 		purple_proxy_connect_data_disconnect(connect_data, g_strerror(error));
@@ -666,6 +680,68 @@ clean_connect(gpointer data)
 }
 
 static void
+proxy_connect_udp_none(PurpleProxyConnectData *connect_data, struct sockaddr *addr, socklen_t addrlen)
+{
+	int flags;
+
+	purple_debug_info("proxy", "UDP Connecting to %s:%d with no proxy\n",
+			connect_data->host, connect_data->port);
+
+	connect_data->fd = socket(addr->sa_family, SOCK_DGRAM, 0);
+	if (connect_data->fd < 0)
+	{
+		purple_proxy_connect_data_disconnect_formatted(connect_data,
+				_("Unable to create socket: %s"), g_strerror(errno));
+		return;
+	}
+
+	flags = fcntl(connect_data->fd, F_GETFL);
+	fcntl(connect_data->fd, F_SETFL, flags | O_NONBLOCK);
+#ifndef _WIN32
+	fcntl(connect_data->fd, F_SETFD, FD_CLOEXEC);
+#endif
+
+	if (connect(connect_data->fd, addr, addrlen) != 0)
+	{
+		if ((errno == EINPROGRESS) || (errno == EINTR))
+		{
+			purple_debug_info("proxy", "UDP Connection in progress\n");
+			connect_data->inpa = purple_input_add(connect_data->fd,
+					PURPLE_INPUT_WRITE, socket_ready_cb, connect_data);
+		}
+		else
+		{
+			purple_proxy_connect_data_disconnect(connect_data, g_strerror(errno));
+		}
+	}
+	else
+	{
+		/*
+		 * The connection happened IMMEDIATELY... strange, but whatever.
+		 */
+		int error = ETIMEDOUT;
+		int ret;
+
+		purple_debug_info("proxy", "UDP Connected immediately.\n");
+
+		ret = purple_input_get_error(connect_data->fd, &error);
+		if ((ret != 0) || (error != 0))
+		{
+			if (ret != 0)
+				error = errno;
+			purple_proxy_connect_data_disconnect(connect_data, g_strerror(error));
+			return;
+		}
+
+		/*
+		 * We want to call the "connected" callback eventually, but we
+		 * don't want to call it before we return, just in case.
+		 */
+		purple_timeout_add(10, clean_connect, connect_data);
+	}
+}
+
+static void
 proxy_connect_none(PurpleProxyConnectData *connect_data, struct sockaddr *addr, socklen_t addrlen)
 {
 	int flags;
@@ -677,7 +753,7 @@ proxy_connect_none(PurpleProxyConnectData *connect_data, struct sockaddr *addr, 
 	if (connect_data->fd < 0)
 	{
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Unable to create socket:\n%s"), g_strerror(errno));
+				_("Unable to create socket: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -798,7 +874,7 @@ http_canread(gpointer data, gint source, PurpleInputCondition cond)
 
 	if (len == 0) {
 		purple_proxy_connect_data_disconnect(connect_data,
-				_("Server closed the connection."));
+				_("Server closed the connection"));
 		return;
 	}
 
@@ -809,7 +885,7 @@ http_canread(gpointer data, gint source, PurpleInputCondition cond)
 
 		/* Error! */
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Lost connection with server:\n%s"), g_strerror(errno));
+				_("Lost connection with server: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -872,7 +948,7 @@ http_canread(gpointer data, gint source, PurpleInputCondition cond)
 
 	if (error) {
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Unable to parse response from HTTP proxy: %s\n"),
+				_("Unable to parse response from HTTP proxy: %s"),
 				connect_data->read_buffer);
 		return;
 	}
@@ -992,7 +1068,7 @@ http_canread(gpointer data, gint source, PurpleInputCondition cond)
 		if (status == 403) {
 			/* Forbidden */
 			purple_proxy_connect_data_disconnect_formatted(connect_data,
-					_("Access denied: HTTP proxy server forbids port %d tunneling."),
+					_("Access denied: HTTP proxy server forbids port %d tunneling"),
 					connect_data->port);
 		} else {
 			purple_proxy_connect_data_disconnect_formatted(connect_data,
@@ -1118,7 +1194,7 @@ proxy_connect_http(PurpleProxyConnectData *connect_data, struct sockaddr *addr, 
 	if (connect_data->fd < 0)
 	{
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Unable to create socket:\n%s"), g_strerror(errno));
+				_("Unable to create socket: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -1177,56 +1253,47 @@ s4_canread(gpointer data, gint source, PurpleInputCondition cond)
 }
 
 static void
-s4_canwrite(gpointer data, gint source, PurpleInputCondition cond)
+s4_host_resolved(GSList *hosts, gpointer data, const char *error_message)
 {
-	unsigned char packet[9];
-	struct hostent *hp;
 	PurpleProxyConnectData *connect_data = data;
-	int error = ETIMEDOUT;
-	int ret;
+	unsigned char packet[9];
+	struct sockaddr *addr;
 
-	purple_debug_info("socks4 proxy", "Connected.\n");
+	connect_data->query_data = NULL;
 
-	if (connect_data->inpa > 0)
-	{
-		purple_input_remove(connect_data->inpa);
-		connect_data->inpa = 0;
-	}
-
-	ret = purple_input_get_error(connect_data->fd, &error);
-	if ((ret != 0) || (error != 0))
-	{
-		if (ret != 0)
-			error = errno;
-		purple_proxy_connect_data_disconnect(connect_data, g_strerror(error));
+	if (error_message != NULL) {
+		purple_proxy_connect_data_disconnect(connect_data, error_message);
 		return;
 	}
 
-	/*
-	 * The socks4 spec doesn't include support for doing host name
-	 * lookups by the proxy.  Some socks4 servers do this via
-	 * extensions to the protocol.  Since we don't know if a
-	 * server supports this, it would need to be implemented
-	 * with an option, or some detection mechanism - in the
-	 * meantime, stick with plain old SOCKS4.
-	 */
-	/* TODO: Use purple_dnsquery_a() */
-	hp = gethostbyname(connect_data->host);
-	if (hp == NULL) {
+	if (hosts == NULL) {
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
 				_("Error resolving %s"), connect_data->host);
 		return;
 	}
 
-	packet[0] = 4;
-	packet[1] = 1;
+	/* Discard the length... */
+	hosts = g_slist_delete_link(hosts, hosts);
+	addr = hosts->data;
+	hosts = g_slist_delete_link(hosts, hosts);
+
+	packet[0] = 0x04;
+	packet[1] = 0x01;
 	packet[2] = connect_data->port >> 8;
 	packet[3] = connect_data->port & 0xff;
-	packet[4] = (unsigned char)(hp->h_addr_list[0])[0];
-	packet[5] = (unsigned char)(hp->h_addr_list[0])[1];
-	packet[6] = (unsigned char)(hp->h_addr_list[0])[2];
-	packet[7] = (unsigned char)(hp->h_addr_list[0])[3];
-	packet[8] = 0;
+	memcpy(packet + 4, &((struct sockaddr_in *)addr)->sin_addr.s_addr, 4);
+	packet[8] = 0x00;
+
+	g_free(addr);
+
+	/* We could try the other hosts, but hopefully that shouldn't be necessary */
+	while (hosts != NULL) {
+		/* Discard the length... */
+		hosts = g_slist_delete_link(hosts, hosts);
+		/* Free the address... */
+		g_free(hosts->data);
+		hosts = g_slist_delete_link(hosts, hosts);
+	}
 
 	connect_data->write_buffer = g_memdup(packet, sizeof(packet));
 	connect_data->write_buf_len = sizeof(packet);
@@ -1235,7 +1302,74 @@ s4_canwrite(gpointer data, gint source, PurpleInputCondition cond)
 
 	connect_data->inpa = purple_input_add(connect_data->fd, PURPLE_INPUT_WRITE, proxy_do_write, connect_data);
 
-	proxy_do_write(connect_data, connect_data->fd, cond);
+	proxy_do_write(connect_data, connect_data->fd, PURPLE_INPUT_WRITE);
+}
+
+static void
+s4_canwrite(gpointer data, gint source, PurpleInputCondition cond)
+{
+	PurpleProxyConnectData *connect_data = data;
+	int error = ETIMEDOUT;
+	int ret;
+
+	purple_debug_info("socks4 proxy", "Connected.\n");
+
+	if (connect_data->inpa > 0) {
+		purple_input_remove(connect_data->inpa);
+		connect_data->inpa = 0;
+	}
+
+	ret = purple_input_get_error(connect_data->fd, &error);
+	if ((ret != 0) || (error != 0)) {
+		if (ret != 0)
+			error = errno;
+		purple_proxy_connect_data_disconnect(connect_data, g_strerror(error));
+		return;
+	}
+
+	/*
+	 * The socks4 spec doesn't include support for doing host name lookups by
+	 * the proxy.  Many socks4 servers do this via the "socks4a" extension to
+	 * the protocol.  There doesn't appear to be a way to detect if a server
+	 * supports this, so we require that the user set a global option.
+	 */
+	if (purple_prefs_get_bool("/purple/proxy/socks4_remotedns")) {
+		unsigned char packet[9];
+		int len;
+
+		purple_debug_info("socks4 proxy", "Attempting to use remote DNS.\n");
+
+		packet[0] = 0x04;
+		packet[1] = 0x01;
+		packet[2] = connect_data->port >> 8;
+		packet[3] = connect_data->port & 0xff;
+		packet[4] = 0x00;
+		packet[5] = 0x00;
+		packet[6] = 0x00;
+		packet[7] = 0x01;
+		packet[8] = 0x00;
+
+		len = sizeof(packet) + strlen(connect_data->host) + 1;
+
+		connect_data->write_buffer = g_malloc0(len);
+		memcpy(connect_data->write_buffer, packet, sizeof(packet));
+		memcpy(connect_data->write_buffer + sizeof(packet), connect_data->host, strlen(connect_data->host));
+		connect_data->write_buf_len = len;
+		connect_data->written_len = 0;
+		connect_data->read_cb = s4_canread;
+
+		connect_data->inpa = purple_input_add(connect_data->fd, PURPLE_INPUT_WRITE, proxy_do_write, connect_data);
+
+		proxy_do_write(connect_data, connect_data->fd, PURPLE_INPUT_WRITE);
+	} else {
+		connect_data->query_data = purple_dnsquery_a(connect_data->host,
+				connect_data->port, s4_host_resolved, connect_data);
+
+		if (connect_data->query_data == NULL) {
+			purple_debug_error("proxy", "dns query failed unexpectedly.\n");
+			purple_proxy_connect_data_destroy(connect_data);
+		}
+	}
 }
 
 static void
@@ -1253,7 +1387,7 @@ proxy_connect_socks4(PurpleProxyConnectData *connect_data, struct sockaddr *addr
 	if (connect_data->fd < 0)
 	{
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Unable to create socket:\n%s"), g_strerror(errno));
+				_("Unable to create socket: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -1322,7 +1456,7 @@ s5_canread_again(gpointer data, gint source, PurpleInputCondition cond)
 	if (len == 0)
 	{
 		purple_proxy_connect_data_disconnect(connect_data,
-				_("Server closed the connection."));
+				_("Server closed the connection"));
 		return;
 	}
 
@@ -1334,7 +1468,7 @@ s5_canread_again(gpointer data, gint source, PurpleInputCondition cond)
 
 		/* Error! */
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Lost connection with server:\n%s"), g_strerror(errno));
+				_("Lost connection with server: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -1351,7 +1485,7 @@ s5_canread_again(gpointer data, gint source, PurpleInputCondition cond)
 		} else {
 			purple_debug_error("socks5 proxy", "Bad data.\n");
 			purple_proxy_connect_data_disconnect(connect_data,
-					_("Received invalid data on connection with server."));
+					_("Received invalid data on connection with server"));
 		}
 		return;
 	}
@@ -1381,7 +1515,7 @@ s5_canread_again(gpointer data, gint source, PurpleInputCondition cond)
 		default:
 			purple_debug_error("socks5 proxy", "Invalid ATYP received (0x%X)\n", buf[3]);
 			purple_proxy_connect_data_disconnect(connect_data,
-					_("Received invalid data on connection with server."));
+					_("Received invalid data on connection with server"));
 			return;
 	}
 
@@ -1396,7 +1530,7 @@ static void
 s5_sendconnect(gpointer data, int source)
 {
 	PurpleProxyConnectData *connect_data = data;
-	int hlen = strlen(connect_data->host);
+	size_t hlen = strlen(connect_data->host);
 	connect_data->write_buf_len = 5 + hlen + 2;
 	connect_data->write_buffer = g_malloc(connect_data->write_buf_len);
 	connect_data->written_len = 0;
@@ -1436,7 +1570,7 @@ s5_readauth(gpointer data, gint source, PurpleInputCondition cond)
 	if (len == 0)
 	{
 		purple_proxy_connect_data_disconnect(connect_data,
-				_("Server closed the connection."));
+				_("Server closed the connection"));
 		return;
 	}
 
@@ -1448,7 +1582,7 @@ s5_readauth(gpointer data, gint source, PurpleInputCondition cond)
 
 		/* Error! */
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Lost connection with server:\n%s"), g_strerror(errno));
+				_("Lost connection with server: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -1461,7 +1595,7 @@ s5_readauth(gpointer data, gint source, PurpleInputCondition cond)
 
 	if ((connect_data->read_buffer[0] != 0x01) || (connect_data->read_buffer[1] != 0x00)) {
 		purple_proxy_connect_data_disconnect(connect_data,
-				_("Received invalid data on connection with server."));
+				_("Received invalid data on connection with server"));
 		return;
 	}
 
@@ -1479,7 +1613,7 @@ hmacmd5_chap(const unsigned char * challenge, int challen, const char * passwd, 
 	int i;
 	unsigned char Kxoripad[65];
 	unsigned char Kxoropad[65];
-	int pwlen;
+	size_t pwlen;
 
 	cipher = purple_ciphers_find_cipher("md5");
 	ctx = purple_cipher_context_new(cipher, NULL);
@@ -1532,7 +1666,7 @@ s5_parse_chap_msg(PurpleProxyConnectData *connect_data)
 
 	if (*cmdbuf != 0x01) {
 		purple_proxy_connect_data_disconnect(connect_data,
-				_("Received invalid data on connection with server."));
+				_("Received invalid data on connection with server"));
 		return -1;
 	}
 	cmdbuf++;
@@ -1633,7 +1767,7 @@ s5_parse_chap_msg(PurpleProxyConnectData *connect_data)
 						"of the socks5 CHAP specification.  "
 						"Disconnecting...");
 					purple_proxy_connect_data_disconnect(connect_data,
-							_("Received invalid data on connection with server."));
+							_("Received invalid data on connection with server"));
 					return -1;
 				}
 				break;
@@ -1672,7 +1806,7 @@ s5_readchap(gpointer data, gint source, PurpleInputCondition cond)
 
 	if (len == 0) {
 		purple_proxy_connect_data_disconnect(connect_data,
-				_("Server closed the connection."));
+				_("Server closed the connection"));
 		return;
 	}
 
@@ -1683,7 +1817,7 @@ s5_readchap(gpointer data, gint source, PurpleInputCondition cond)
 
 		/* Error! */
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Lost connection with server:\n%s"), g_strerror(errno));
+				_("Lost connection with server: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -1697,7 +1831,7 @@ s5_readchap(gpointer data, gint source, PurpleInputCondition cond)
 			return;
 
 		msg_ret = s5_parse_chap_msg(connect_data);
-	
+
 		if (msg_ret < 0)
 			return;
 
@@ -1747,7 +1881,7 @@ s5_canread(gpointer data, gint source, PurpleInputCondition cond)
 	if (len == 0)
 	{
 		purple_proxy_connect_data_disconnect(connect_data,
-				_("Server closed the connection."));
+				_("Server closed the connection"));
 		return;
 	}
 
@@ -1759,7 +1893,7 @@ s5_canread(gpointer data, gint source, PurpleInputCondition cond)
 
 		/* Error! */
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Lost connection with server:\n%s"), g_strerror(errno));
+				_("Lost connection with server: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -1772,12 +1906,12 @@ s5_canread(gpointer data, gint source, PurpleInputCondition cond)
 
 	if ((connect_data->read_buffer[0] != 0x05) || (connect_data->read_buffer[1] == 0xff)) {
 		purple_proxy_connect_data_disconnect(connect_data,
-				_("Received invalid data on connection with server."));
+				_("Received invalid data on connection with server"));
 		return;
 	}
 
 	if (connect_data->read_buffer[1] == 0x02) {
-		gsize i, j;
+		size_t i, j;
 		const char *u, *p;
 
 		u = purple_proxy_info_get_username(connect_data->gpi);
@@ -1810,7 +1944,7 @@ s5_canread(gpointer data, gint source, PurpleInputCondition cond)
 
 		return;
 	} else if (connect_data->read_buffer[1] == 0x03) {
-		gsize userlen;
+		size_t userlen;
 		userlen = strlen(purple_proxy_info_get_username(connect_data->gpi));
 
 		connect_data->write_buf_len = 7 + userlen;
@@ -1913,7 +2047,7 @@ proxy_connect_socks5(PurpleProxyConnectData *connect_data, struct sockaddr *addr
 	if (connect_data->fd < 0)
 	{
 		purple_proxy_connect_data_disconnect_formatted(connect_data,
-				_("Unable to create socket:\n%s"), g_strerror(errno));
+				_("Unable to create socket: %s"), g_strerror(errno));
 		return;
 	}
 
@@ -1957,7 +2091,7 @@ proxy_connect_socks5(PurpleProxyConnectData *connect_data, struct sockaddr *addr
 
 static void try_connect(PurpleProxyConnectData *connect_data)
 {
-	size_t addrlen;
+	socklen_t addrlen;
 	struct sockaddr *addr;
 	char ipaddr[INET6_ADDRSTRLEN];
 
@@ -1969,10 +2103,16 @@ static void try_connect(PurpleProxyConnectData *connect_data)
 	inet_ntop(addr->sa_family, &((struct sockaddr_in *)addr)->sin_addr,
 			ipaddr, sizeof(ipaddr));
 #else
-	memcpy(ipaddr,inet_ntoa(((struct sockaddr_in *)addr)->sin_addr),
+	memcpy(ipaddr, inet_ntoa(((struct sockaddr_in *)addr)->sin_addr),
 			sizeof(ipaddr));
 #endif
 	purple_debug_info("proxy", "Attempting connection to %s\n", ipaddr);
+
+	if (connect_data->socket_type == SOCK_DGRAM) {
+		proxy_connect_udp_none(connect_data, addr, addrlen);
+		g_free(addr);
+		return;
+	}
 
 	switch (purple_proxy_info_get_type(connect_data->gpi)) {
 		case PURPLE_PROXY_NONE:
@@ -2019,7 +2159,7 @@ connection_host_resolved(GSList *hosts, gpointer data,
 
 	if (hosts == NULL)
 	{
-		purple_proxy_connect_data_disconnect(connect_data, _("Could not resolve host name"));
+		purple_proxy_connect_data_disconnect(connect_data, _("Unable to resolve hostname"));
 		return;
 	}
 
@@ -2125,6 +2265,7 @@ purple_proxy_connect(void *handle, PurpleAccount *account,
 
 	connect_data = g_new0(PurpleProxyConnectData, 1);
 	connect_data->fd = -1;
+	connect_data->socket_type = SOCK_STREAM;
 	connect_data->handle = handle;
 	connect_data->connect_cb = connect_cb;
 	connect_data->data = data;
@@ -2175,6 +2316,71 @@ purple_proxy_connect(void *handle, PurpleAccount *account,
 	return connect_data;
 }
 
+PurpleProxyConnectData *
+purple_proxy_connect_udp(void *handle, PurpleAccount *account,
+				   const char *host, int port,
+				   PurpleProxyConnectFunction connect_cb, gpointer data)
+{
+	const char *connecthost = host;
+	int connectport = port;
+	PurpleProxyConnectData *connect_data;
+
+	g_return_val_if_fail(host       != NULL, NULL);
+	g_return_val_if_fail(port       >  0,    NULL);
+	g_return_val_if_fail(connect_cb != NULL, NULL);
+
+	connect_data = g_new0(PurpleProxyConnectData, 1);
+	connect_data->fd = -1;
+	connect_data->socket_type = SOCK_DGRAM;
+	connect_data->handle = handle;
+	connect_data->connect_cb = connect_cb;
+	connect_data->data = data;
+	connect_data->host = g_strdup(host);
+	connect_data->port = port;
+	connect_data->gpi = purple_proxy_get_setup(account);
+
+	if ((purple_proxy_info_get_type(connect_data->gpi) != PURPLE_PROXY_NONE) &&
+		(purple_proxy_info_get_host(connect_data->gpi) == NULL ||
+		 purple_proxy_info_get_port(connect_data->gpi) <= 0)) {
+
+		purple_notify_error(NULL, NULL, _("Invalid proxy settings"), _("Either the host name or port number specified for your given proxy type is invalid."));
+		purple_proxy_connect_data_destroy(connect_data);
+		return NULL;
+	}
+
+	switch (purple_proxy_info_get_type(connect_data->gpi))
+	{
+		case PURPLE_PROXY_NONE:
+			break;
+
+		case PURPLE_PROXY_HTTP:
+		case PURPLE_PROXY_SOCKS4:
+		case PURPLE_PROXY_SOCKS5:
+		case PURPLE_PROXY_USE_ENVVAR:
+			purple_debug_info("proxy", "Ignoring Proxy type (%d) for UDP.\n",
+			                  purple_proxy_info_get_type(connect_data->gpi));
+			break;
+
+		default:
+			purple_debug_error("proxy", "Invalid Proxy type (%d) specified.\n",
+			                   purple_proxy_info_get_type(connect_data->gpi));
+			purple_proxy_connect_data_destroy(connect_data);
+			return NULL;
+	}
+
+	connect_data->query_data = purple_dnsquery_a(connecthost,
+			connectport, connection_host_resolved, connect_data);
+	if (connect_data->query_data == NULL)
+	{
+		purple_proxy_connect_data_destroy(connect_data);
+		return NULL;
+	}
+
+	handles = g_slist_prepend(handles, connect_data);
+
+	return connect_data;
+}
+
 /*
  * Combine some of this code with purple_proxy_connect()
  */
@@ -2192,6 +2398,7 @@ purple_proxy_connect_socks5(void *handle, PurpleProxyInfo *gpi,
 
 	connect_data = g_new0(PurpleProxyConnectData, 1);
 	connect_data->fd = -1;
+	connect_data->socket_type = SOCK_STREAM;
 	connect_data->handle = handle;
 	connect_data->connect_cb = connect_cb;
 	connect_data->data = data;
@@ -2242,31 +2449,31 @@ proxy_pref_cb(const char *name, PurplePrefType type,
 {
 	PurpleProxyInfo *info = purple_global_proxy_get_info();
 
-	if (!strcmp(name, "/purple/proxy/type")) {
+	if (purple_strequal(name, "/purple/proxy/type")) {
 		int proxytype;
 		const char *type = value;
 
-		if (!strcmp(type, "none"))
+		if (purple_strequal(type, "none"))
 			proxytype = PURPLE_PROXY_NONE;
-		else if (!strcmp(type, "http"))
+		else if (purple_strequal(type, "http"))
 			proxytype = PURPLE_PROXY_HTTP;
-		else if (!strcmp(type, "socks4"))
+		else if (purple_strequal(type, "socks4"))
 			proxytype = PURPLE_PROXY_SOCKS4;
-		else if (!strcmp(type, "socks5"))
+		else if (purple_strequal(type, "socks5"))
 			proxytype = PURPLE_PROXY_SOCKS5;
-		else if (!strcmp(type, "envvar"))
+		else if (purple_strequal(type, "envvar"))
 			proxytype = PURPLE_PROXY_USE_ENVVAR;
 		else
 			proxytype = -1;
 
 		purple_proxy_info_set_type(info, proxytype);
-	} else if (!strcmp(name, "/purple/proxy/host"))
+	} else if (purple_strequal(name, "/purple/proxy/host"))
 		purple_proxy_info_set_host(info, value);
-	else if (!strcmp(name, "/purple/proxy/port"))
+	else if (purple_strequal(name, "/purple/proxy/port"))
 		purple_proxy_info_set_port(info, GPOINTER_TO_INT(value));
-	else if (!strcmp(name, "/purple/proxy/username"))
+	else if (purple_strequal(name, "/purple/proxy/username"))
 		purple_proxy_info_set_username(info, value);
-	else if (!strcmp(name, "/purple/proxy/password"))
+	else if (purple_strequal(name, "/purple/proxy/password"))
 		purple_proxy_info_set_password(info, value);
 }
 
@@ -2293,6 +2500,7 @@ purple_proxy_init(void)
 	purple_prefs_add_int("/purple/proxy/port", 0);
 	purple_prefs_add_string("/purple/proxy/username", "");
 	purple_prefs_add_string("/purple/proxy/password", "");
+	purple_prefs_add_bool("/purple/proxy/socks4_remotedns", FALSE);
 
 	/* Setup callbacks for the preferences. */
 	handle = purple_proxy_get_handle();
@@ -2323,4 +2531,9 @@ purple_proxy_uninit(void)
 		purple_proxy_connect_data_disconnect(handles->data, NULL);
 		purple_proxy_connect_data_destroy(handles->data);
 	}
+
+	purple_prefs_disconnect_by_handle(purple_proxy_get_handle());
+
+	purple_proxy_info_destroy(global_proxy_info);
+	global_proxy_info = NULL;
 }

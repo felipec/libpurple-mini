@@ -35,7 +35,6 @@ typedef struct _MsnSession MsnSession;
 #include "switchboard.h"
 #include "group.h"
 
-#include "cmdproc.h"
 #include "nexus.h"
 #include "httpconn.h"
 #include "oim.h"
@@ -90,15 +89,16 @@ struct _MsnSession
 
 	gboolean connected;
 	gboolean logged_in; /**< A temporal flag to ignore local buddy list adds. */
+	int      adl_fqy; /**< A count of ADL/FQY so status is only changed once. */
 	gboolean destroying; /**< A flag that states if the session is being destroyed. */
 	gboolean http_method;
 
 	MsnNotification *notification;
-	MsnNexus *nexus;
-	MsnOim		*oim;
-	MsnSync *sync;
-
-	MsnUserList *userlist;
+	MsnNexus        *nexus;
+	MsnOim          *oim;
+	MsnSync         *sync;
+	MsnUserList     *userlist;
+	char            *abch_cachekey;
 
 	int servconns_count; /**< The count of server connections. */
 	GList *switches; /**< The list of all the switchboards. */
@@ -107,7 +107,9 @@ struct _MsnSession
 	/*psm info*/
 	char *psm;
 
+#if 0
 	char *blocked_text;
+#endif
 
 	struct
 	{
@@ -123,7 +125,7 @@ struct _MsnSession
 	} passport_info;
 
 	GHashTable *soap_table;
-	int soap_cleanup_handle;
+	guint soap_cleanup_handle;
 };
 
 /**
