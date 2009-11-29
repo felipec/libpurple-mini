@@ -1,12 +1,17 @@
 CC := $(CROSS_COMPILE)gcc
 
-PLATFORM := $(shell uname -s)
+PLATFORM := $(shell $(CC) -dumpmachine | cut -f 3 -d -)
 
 GOBJECT_CFLAGS := $(shell pkg-config --cflags gobject-2.0)
 GOBJECT_LIBS := $(shell pkg-config --libs gobject-2.0)
 
 LIBXML_CFLAGS := $(shell pkg-config --cflags libxml-2.0)
 LIBXML_LIBS := $(shell pkg-config --libs libxml-2.0)
+
+ifeq ($(PLATFORM),mingw32)
+GTHREAD_CFLAGS := $(shell pkg-config --cflags gthread-2.0)
+GTHREAD_LIBS := $(shell pkg-config --libs gthread-2.0)
+endif
 
 CFLAGS := -O2 -ggdb -Wall
 LDFLAGS := -Wl,--no-undefined
@@ -19,12 +24,14 @@ libdir := /usr/lib
 sysconfdir := /etc
 ssl_dir := /usr/share
 
+ifneq ($(PLATFORM),mingw32)
 override CFLAGS += -DBR_PTHREADS=0 \
 	-DDATADIR=\"$(datadir)\" \
 	-DLIBDIR=\"$(libdir)/purple-1.0/\" \
 	-DLOCALEDIR=\"$(datadir)/locale\" \
 	-DSYSCONFDIR=\"$(sysconfdir)\" \
 	-DSSL_CERTIFICATES_DIR=\"$(ssl_dir)\"
+endif
 
 objects = account.o \
 	  accountopt.o \
@@ -38,7 +45,6 @@ objects = account.o \
 	  conversation.o \
 	  core.o \
 	  debug.o \
-	  desktopitem.o \
 	  eventloop.o \
 	  ft.o \
 	  idle.o \
@@ -128,12 +134,26 @@ headers := account.h \
 	   xmlnode.h \
 	   whiteboard.h
 
+ifeq ($(PLATFORM),mingw32)
+objects += win32/giowin32.o \
+	   win32/libc_interface.o \
+	   win32/win32dep.o
+else
+objects += desktopitem.o
+endif
+
 sources := $(patsubst %.o,%.c,$(objects))
 deps := $(patsubst %.o,%.d,$(objects))
 
-SHLIBEXT := so
-override CFLAGS += -fPIC
-LIBS := -lresolv
+ifeq ($(PLATFORM),mingw32)
+  SHLIBEXT := dll
+  override CFLAGS += -I. -I./win32
+  LIBS := -lintl -lws2_32 $(GTHREAD_LIBS)
+else
+  SHLIBEXT := so
+  override CFLAGS += -fPIC
+  LIBS := -lresolv
+endif
 
 target := libpurple.$(SHLIBEXT)
 

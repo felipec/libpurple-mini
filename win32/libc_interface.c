@@ -28,7 +28,6 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <glib.h>
-#include "config.h"
 #include "debug.h"
 #include "libc_internal.h"
 #include <glib/gstdio.h>
