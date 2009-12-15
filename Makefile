@@ -13,6 +13,9 @@ GTHREAD_CFLAGS := $(shell pkg-config --cflags gthread-2.0)
 GTHREAD_LIBS := $(shell pkg-config --libs gthread-2.0)
 endif
 
+NSS_CFLAGS := $(shell pkg-config --cflags nss)
+NSS_LIBS := $(shell pkg-config --libs nss)
+
 CFLAGS := -O2 -ggdb -Wall
 
 prefix := /usr
@@ -32,7 +35,7 @@ override CFLAGS += -DBR_PTHREADS=0 \
 	-DSSL_CERTIFICATES_DIR=\"$(ssl_dir)\"
 endif
 
-override CFLAGS += -DPURPLE_PLUGINS
+override CFLAGS += -DPURPLE_PLUGINS -DHAVE_SSL
 
 objects = account.o \
 	  accountopt.o \
@@ -195,6 +198,26 @@ $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 $(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm \
 	-Wl,--no-undefined
 
+# ssl
+
+plugin := libssl.$(SHLIBEXT)
+
+$(plugin): plugins/ssl/ssl.o
+$(plugin): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) -I. \
+	-D DISPLAY_VERSION='"$(version)"'
+$(plugin): LIBS := $(LIBS) $(GOBJECT_LIBS)
+
+plugins += $(plugin)
+
+plugin := libssl-nss.$(SHLIBEXT)
+
+$(plugin): plugins/ssl/ssl-nss.o
+$(plugin): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(NSS_CFLAGS) -I. \
+	-D DISPLAY_VERSION='"$(version)"'
+$(plugin): LIBS := $(LIBS) $(GOBJECT_LIBS) $(NSS_LIBS)
+
+plugins += $(plugin)
+
 all: $(target) $(plugins)
 
 version.h: version.h.in
@@ -208,6 +231,9 @@ install: $(target) $(plugins) purple.pc
 	mkdir -p $(D)/$(libdir)
 	install -m 644 $(target) $(D)/$(libdir)/$(target).0
 	ln -sf $(target).0 $(D)/$(libdir)/$(target)
+	# plugins
+	mkdir -p $(D)/$(plugindir)
+	install -m 644 $(plugins) $(D)/$(plugindir)
 	# pkgconfig
 	mkdir -p $(D)/$(libdir)/pkgconfig
 	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig
