@@ -17,17 +17,17 @@ CFLAGS := -O2 -ggdb -Wall
 LDFLAGS := -Wl,--no-undefined
 
 prefix := /usr
-install_dir := $(DESTDIR)/$(prefix)
 
-datadir := /usr/share
-libdir := /usr/lib
-sysconfdir := /etc
-ssl_dir := /usr/share
+datadir := $(prefix)/share
+libdir := $(prefix)/lib
+sysconfdir := $(prefix)/etc
+ssl_dir := $(prefix)/share
+plugindir := $(prefix)/lib/purple-2
 
 ifneq ($(PLATFORM),mingw32)
 override CFLAGS += -DBR_PTHREADS=0 \
 	-DDATADIR=\"$(datadir)\" \
-	-DLIBDIR=\"$(libdir)/purple-1.0/\" \
+	-DLIBDIR=\"$(plugindir)\" \
 	-DLOCALEDIR=\"$(datadir)/locale\" \
 	-DSYSCONFDIR=\"$(sysconfdir)\" \
 	-DSSL_CERTIFICATES_DIR=\"$(ssl_dir)\"
@@ -172,7 +172,7 @@ target := libpurple.$(SHLIBEXT)
 
 .PHONY: all clean version.h
 
-all: $(target)
+all:
 
 # pretty print
 V = @
@@ -180,6 +180,8 @@ Q = $(V:y=)
 QUIET_CC    = $(Q:@=@echo '   CC         '$@;)
 QUIET_LINK  = $(Q:@=@echo '   LINK       '$@;)
 QUIET_CLEAN = $(Q:@=@echo '   CLEAN      '$@;)
+
+D = $(DESTDIR)
 
 version := $(shell ./get-version)
 
@@ -190,20 +192,26 @@ $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
 $(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm
 
+all: $(target)
+
 version.h: version.h.in
 	./update-version
 
 purple.pc: purple.pc.in
-	sed -e 's#@prefix@#$(prefix)#g' -e 's#@version@#$(version)#g' $@.in > $@
+	sed -e 's#@prefix@#$(prefix)#g' -e 's#@version@#$(version)#g' $< > $@
 
 install: $(target) purple.pc
-	mkdir -p $(install_dir)/lib/pkgconfig
-	mkdir -p $(install_dir)/include/libpurple
-	install -m 644 $(target) $(install_dir)/lib/$(target).0
-	ln -sf $(target).0 $(install_dir)/lib/$(target)
-	install -m 644 purple.pc $(install_dir)/lib/pkgconfig
-	install -m 644 $(headers) $(install_dir)/include/libpurple/
-	install -m 644 purple-client.h $(install_dir)/include/libpurple/purple.h
+	# lib
+	mkdir -p $(D)/$(libdir)
+	install -m 644 $(target) $(D)/$(libdir)/$(target).0
+	ln -sf $(target).0 $(D)/$(libdir)/$(target)
+	# pkgconfig
+	mkdir -p $(D)/$(libdir)/pkgconfig
+	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig
+	# includes
+	mkdir -p $(D)/$(prefix)/include/libpurple
+	install -m 644 $(headers) $(D)/$(prefix)/include/libpurple/
+	install -m 644 purple-client.h $(D)/$(prefix)/include/libpurple/purple.h
 
 %.o:: %.c
 	$(QUIET_CC)$(CC) $(CFLAGS) -MMD -o $@ -c $<
