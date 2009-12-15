@@ -229,11 +229,11 @@ purple.pc: purple.pc.in
 install: $(target) $(plugins) purple.pc
 	# lib
 	mkdir -p $(D)/$(libdir)
-	install -m 644 $(target) $(D)/$(libdir)/$(target).0
+	install -m 755 $(target) $(D)/$(libdir)/$(target).0
 	ln -sf $(target).0 $(D)/$(libdir)/$(target)
 	# plugins
 	mkdir -p $(D)/$(plugindir)
-	install -m 644 $(plugins) $(D)/$(plugindir)
+	install -m 755 $(plugins) $(D)/$(plugindir)
 	# pkgconfig
 	mkdir -p $(D)/$(libdir)/pkgconfig
 	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig
