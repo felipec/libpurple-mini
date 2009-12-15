@@ -2,8 +2,8 @@ CC := $(CROSS_COMPILE)gcc
 
 PLATFORM := $(shell $(CC) -dumpmachine | cut -f 3 -d -)
 
-GOBJECT_CFLAGS := $(shell pkg-config --cflags gobject-2.0)
-GOBJECT_LIBS := $(shell pkg-config --libs gobject-2.0)
+GOBJECT_CFLAGS := $(shell pkg-config --cflags gobject-2.0 gmodule-2.0)
+GOBJECT_LIBS := $(shell pkg-config --libs gobject-2.0 gmodule-2.0)
 
 LIBXML_CFLAGS := $(shell pkg-config --cflags libxml-2.0)
 LIBXML_LIBS := $(shell pkg-config --libs libxml-2.0)
@@ -14,7 +14,6 @@ GTHREAD_LIBS := $(shell pkg-config --libs gthread-2.0)
 endif
 
 CFLAGS := -O2 -ggdb -Wall
-LDFLAGS := -Wl,--no-undefined
 
 prefix := /usr
 
@@ -32,6 +31,8 @@ override CFLAGS += -DBR_PTHREADS=0 \
 	-DSYSCONFDIR=\"$(sysconfdir)\" \
 	-DSSL_CERTIFICATES_DIR=\"$(ssl_dir)\"
 endif
+
+override CFLAGS += -DPURPLE_PLUGINS
 
 objects = account.o \
 	  accountopt.o \
@@ -169,6 +170,7 @@ else
 endif
 
 target := libpurple.$(SHLIBEXT)
+plugins :=
 
 .PHONY: all clean version.h
 
@@ -190,9 +192,10 @@ plugin.o: | version.h
 $(target): $(objects)
 $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
-$(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm
+$(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm \
+	-Wl,--no-undefined
 
-all: $(target)
+all: $(target) $(plugins)
 
 version.h: version.h.in
 	./update-version
@@ -200,7 +203,7 @@ version.h: version.h.in
 purple.pc: purple.pc.in
 	sed -e 's#@prefix@#$(prefix)#g' -e 's#@version@#$(version)#g' $< > $@
 
-install: $(target) purple.pc
+install: $(target) $(plugins) purple.pc
 	# lib
 	mkdir -p $(D)/$(libdir)
 	install -m 644 $(target) $(D)/$(libdir)/$(target).0
