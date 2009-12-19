@@ -143,13 +143,17 @@ headers := account.h \
 	   sound-theme.h \
 	   sound-theme-loader.h \
 	   sslconn.h \
+	   theme.h \
+	   theme-loader.h \
+	   theme-manager.h \
 	   upnp.h \
 	   util.h \
-	   value.h \
-	   version.h \
 	   valgrind.h \
+	   value.h \
 	   xmlnode.h \
 	   whiteboard.h
+
+headers += version.h
 
 ifeq ($(PLATFORM),mingw32)
 objects += win32/giowin32.o \
@@ -158,9 +162,6 @@ objects += win32/giowin32.o \
 else
 objects += desktopitem.o
 endif
-
-sources := $(patsubst %.o,%.c,$(objects))
-deps := $(patsubst %.o,%.d,$(objects))
 
 ifeq ($(PLATFORM),mingw32)
   SHLIBEXT := dll
@@ -195,9 +196,8 @@ plugin.o: | version.h
 $(target): $(objects)
 $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
-$(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm \
-	-Wl,--no-undefined
-$(target): LDFLAGS := -Wl,-soname,$(target).0
+$(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm
+$(target): LDFLAGS := -Wl,-soname,$(target).0 -Wl,--no-undefined
 
 # ssl
 
@@ -225,7 +225,9 @@ version.h: version.h.in
 	./update-version
 
 purple.pc: purple.pc.in
-	sed -e 's#@prefix@#$(prefix)#g' -e 's#@version@#$(version)#g' $< > $@
+	sed -e 's#@prefix@#$(prefix)#g' \
+		-e 's#@version@#$(version)#g' \
+		$< > $@
 
 install: $(target) $(plugins) purple.pc
 	# lib
@@ -250,6 +252,7 @@ install: $(target) $(plugins) purple.pc
 	$(QUIET_LINK)$(CC) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
 
 clean:
-	$(QUIET_CLEAN)$(RM) $(target) $(objects) $(deps)
+	$(QUIET_CLEAN)$(RM) $(target) $(plugins)
+	$(QUIET_CLEAN)find -name '*.[od]' | xargs rm -f
 
--include $(deps)
+-include *.d plugins/ssl/*.d
