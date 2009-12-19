@@ -190,6 +190,13 @@ purple_core_init(const char *ui)
 	return TRUE;
 }
 
+#ifndef HAVE_DBUS
+void
+purple_dbus_uninit(void)
+{
+}
+#endif
+
 void
 purple_core_quit(void)
 {
@@ -253,9 +260,7 @@ purple_core_quit(void)
 	/* Everything after prefs_uninit must not try to read any prefs */
 	purple_prefs_uninit();
 	purple_plugins_uninit();
-#ifdef HAVE_DBUS
 	purple_dbus_uninit();
-#endif
 
 	purple_cmds_uninit();
 	/* Everything after util_uninit cannot try to write things to the confdir */
