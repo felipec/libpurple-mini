@@ -197,6 +197,7 @@ $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
 $(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm \
 	-Wl,--no-undefined
+$(target): LDFLAGS := -Wl,-soname,$(target).0
 
 # ssl
 
