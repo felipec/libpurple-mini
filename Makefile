@@ -252,7 +252,7 @@ install: $(target) $(plugins) purple.pc
 uninstall:
 	$(RM) $(D)/$(libdir)/$(target)*
 	$(RM) -r $(D)/$(plugindir)
-	$(RM) $(D)/$(libdir)/pkgconfig/purple.pc
+	$(RM) $(D)/$(libdir)/pkgconfig/$(module).pc
 	$(RM) -r $(D)/$(includedir)/libpurple
 
 %.o:: %.c
