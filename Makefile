@@ -246,6 +246,12 @@ install: $(target) $(plugins) purple.pc
 	install -m 644 $(headers) $(D)/$(includedir)/libpurple
 	install -m 644 purple-client.h $(D)/$(includedir)/libpurple/purple.h
 
+uninstall:
+	$(RM) $(D)/$(libdir)/$(target)*
+	$(RM) -r $(D)/$(plugindir)
+	$(RM) $(D)/$(libdir)/pkgconfig/purple.pc
+	$(RM) -r $(D)/$(includedir)/libpurple
+
 %.o:: %.c
 	$(QUIET_CC)$(CC) $(CFLAGS) -MMD -o $@ -c $<
 
