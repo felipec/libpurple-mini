@@ -18,13 +18,14 @@ NSS_LIBS := $(shell pkg-config --libs nss)
 
 CFLAGS := -O2 -ggdb -Wall
 
+module := purple
 prefix := /usr
 
 datadir := $(prefix)/share
 libdir := $(prefix)/lib
 sysconfdir := $(prefix)/etc
 ssl_dir := $(prefix)/share
-plugindir := $(prefix)/lib/purple-2
+plugindir := $(prefix)/lib/$(module)
 includedir := $(prefix)/include
 
 ifneq ($(PLATFORM),mingw32)
@@ -174,7 +175,7 @@ else
   LIBS := -lresolv
 endif
 
-target := libpurple.$(SHLIBEXT)
+target := lib$(module).$(SHLIBEXT)
 plugins :=
 
 .PHONY: all clean version.h
@@ -229,6 +230,7 @@ purple.pc: purple.pc.in
 	sed -e 's#@prefix@#$(prefix)#g' \
 		-e 's#@version@#$(version)#g' \
 		-e 's#@cflags@#-I$${includedir}/libpurple#g' \
+		-e 's#@module@#$(module)#g' \
 		$< > $@
 
 install: $(target) $(plugins) purple.pc
@@ -241,7 +243,7 @@ install: $(target) $(plugins) purple.pc
 	install -m 755 $(plugins) $(D)/$(plugindir)
 	# pkgconfig
 	mkdir -p $(D)/$(libdir)/pkgconfig
-	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig
+	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig/$(module).pc
 	# includes
 	mkdir -p $(D)/$(includedir)/libpurple
 	install -m 644 $(headers) $(D)/$(includedir)/libpurple
