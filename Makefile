@@ -25,6 +25,7 @@ libdir := $(prefix)/lib
 sysconfdir := $(prefix)/etc
 ssl_dir := $(prefix)/share
 plugindir := $(prefix)/lib/purple-2
+includedir := $(prefix)/include
 
 ifneq ($(PLATFORM),mingw32)
 override CFLAGS += -DBR_PTHREADS=0 \
@@ -241,9 +242,9 @@ install: $(target) $(plugins) purple.pc
 	mkdir -p $(D)/$(libdir)/pkgconfig
 	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig
 	# includes
-	mkdir -p $(D)/$(prefix)/include/libpurple
-	install -m 644 $(headers) $(D)/$(prefix)/include/libpurple/
-	install -m 644 purple-client.h $(D)/$(prefix)/include/libpurple/purple.h
+	mkdir -p $(D)/$(includedir)/libpurple
+	install -m 644 $(headers) $(D)/$(includedir)/libpurple
+	install -m 644 purple-client.h $(D)/$(includedir)/libpurple/purple.h
 
 %.o:: %.c
 	$(QUIET_CC)$(CC) $(CFLAGS) -MMD -o $@ -c $<
