@@ -229,7 +229,7 @@ version.h: version.h.in
 purple.pc: purple.pc.in
 	sed -e 's#@prefix@#$(prefix)#g' \
 		-e 's#@version@#$(version)#g' \
-		-e 's#@cflags@#-I$${includedir}/lib$(module)/libpurple#g' \
+		-e 's#@cflags@#-I$${includedir}/lib$(module) -I$${includedir}/lib$(module)/libpurple#g' \
 		-e 's#@module@#$(module)#g' \
 		$< > $@
 
