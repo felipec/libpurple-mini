@@ -228,6 +228,7 @@ version.h: version.h.in
 purple.pc: purple.pc.in
 	sed -e 's#@prefix@#$(prefix)#g' \
 		-e 's#@version@#$(version)#g' \
+		-e 's#@cflags@#-I$${includedir}/libpurple#g' \
 		$< > $@
 
 install: $(target) $(plugins) purple.pc
