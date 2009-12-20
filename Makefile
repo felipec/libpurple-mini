@@ -26,7 +26,7 @@ libdir := $(prefix)/lib
 sysconfdir := $(prefix)/etc
 ssl_dir := $(prefix)/share
 plugindir := $(prefix)/lib/$(module)
-includedir := $(prefix)/include
+includedir := $(prefix)/include/lib$(module)
 
 ifneq ($(PLATFORM),mingw32)
 override CFLAGS += -DBR_PTHREADS=0 \
@@ -229,7 +229,7 @@ version.h: version.h.in
 purple.pc: purple.pc.in
 	sed -e 's#@prefix@#$(prefix)#g' \
 		-e 's#@version@#$(version)#g' \
-		-e 's#@cflags@#-I$${includedir}/libpurple#g' \
+		-e 's#@cflags@#-I$${includedir}/lib$(module)/libpurple#g' \
 		-e 's#@module@#$(module)#g' \
 		$< > $@
 
