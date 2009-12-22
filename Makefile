@@ -31,6 +31,12 @@ ssl_dir := $(prefix)/share
 plugindir := $(prefix)/lib/$(module)
 includedir := $(prefix)/include/lib$(module)
 
+ifeq ($(PLATFORM),mingw32)
+LDFLAGS += -mms-bitfields \
+	   -Wl,--enable-auto-image-base \
+	   -Wl,--export-all-symbols
+endif
+
 ifneq ($(PLATFORM),mingw32)
 override CFLAGS += -DBR_PTHREADS=0 \
 	-DDATADIR=\"$(datadir)\" \
@@ -241,8 +247,14 @@ purple.pc: purple.pc.in
 install: $(target) $(plugins) purple.pc
 	# lib
 	mkdir -p $(D)/$(libdir)
+ifneq ($(PLATFORM),mingw32)
 	install -m 755 $(target) $(D)/$(libdir)/$(target).0
 	ln -sf $(target).0 $(D)/$(libdir)/$(target)
+else
+	install -m 755 $(target).a $(D)/$(libdir)
+	mkdir -p $(D)/$(prefix)/bin
+	install -m 755 $(target) $(D)/$(prefix)/bin
+endif
 ifneq ($(plugins),)
 	# plugins
 	mkdir -p $(D)/$(plugindir)
@@ -257,6 +269,9 @@ endif
 	install -m 644 purple-client.h $(D)/$(includedir)/libpurple/purple.h
 
 uninstall:
+ifeq ($(PLATFORM),mingw32)
+	$(RM) $(D)/$(prefix)/bin/$(target)*
+endif
 	$(RM) $(D)/$(libdir)/$(target)*
 	$(RM) -r $(D)/$(plugindir)
 	$(RM) $(D)/$(libdir)/pkgconfig/$(module).pc
@@ -265,8 +280,11 @@ uninstall:
 %.o:: %.c
 	$(QUIET_CC)$(CC) $(CFLAGS) -MMD -o $@ -c $<
 
-%.so %.dll::
+%.so::
 	$(QUIET_LINK)$(CC) $(LDFLAGS) -shared -o $@ $^ $(LIBS)
+
+%.dll::
+	$(QUIET_LINK)$(CC) $(LDFLAGS) -shared -Wl,--out-implib,$@.a -o $@ $^ $(LIBS)
 
 clean:
 	$(QUIET_CLEAN)$(RM) $(target) $(plugins)
