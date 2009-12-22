@@ -1,6 +1,7 @@
 CC := $(CROSS_COMPILE)gcc
 
 PLATFORM := $(shell $(CC) -dumpmachine | cut -f 3 -d -)
+SSL := y
 
 GOBJECT_CFLAGS := $(shell pkg-config --cflags gobject-2.0 gmodule-2.0)
 GOBJECT_LIBS := $(shell pkg-config --libs gobject-2.0 gmodule-2.0)
@@ -13,8 +14,10 @@ GTHREAD_CFLAGS := $(shell pkg-config --cflags gthread-2.0)
 GTHREAD_LIBS := $(shell pkg-config --libs gthread-2.0)
 endif
 
+ifeq ($(SSL),y)
 NSS_CFLAGS := $(shell pkg-config --cflags nss)
 NSS_LIBS := $(shell pkg-config --libs nss)
+endif
 
 CFLAGS := -O2 -ggdb -Wall
 
@@ -199,9 +202,9 @@ $(target): $(objects)
 $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
 	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
 $(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm
-$(target): LDFLAGS := -Wl,-soname,$(target).0 -Wl,--no-undefined
+$(target): LDFLAGS := $(LDFLAGS) -Wl,-soname,$(target).0 -Wl,--no-undefined
 
-# ssl
+ifeq ($(SSL),y)
 
 plugin := libssl.$(SHLIBEXT)
 
@@ -221,6 +224,8 @@ $(plugin): LIBS := $(LIBS) $(GOBJECT_LIBS) $(NSS_LIBS)
 
 plugins += $(plugin)
 
+endif # SSL
+
 all: $(target) $(plugins)
 
 version.h: version.h.in
@@ -238,9 +243,11 @@ install: $(target) $(plugins) purple.pc
 	mkdir -p $(D)/$(libdir)
 	install -m 755 $(target) $(D)/$(libdir)/$(target).0
 	ln -sf $(target).0 $(D)/$(libdir)/$(target)
+ifneq ($(plugins),)
 	# plugins
 	mkdir -p $(D)/$(plugindir)
 	install -m 755 $(plugins) $(D)/$(plugindir)
+endif
 	# pkgconfig
 	mkdir -p $(D)/$(libdir)/pkgconfig
 	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig/$(module).pc
