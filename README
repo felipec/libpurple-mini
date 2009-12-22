@@ -1,10 +1,5 @@
 libpurple-mini is a project that tries to simplify the build of libpurple
 independently of pidgin.
 
-Currently it's possible to compile a basic library so that other plugins can
-link to it easily.
-
-I'm doing this primarily to make it easier to cross-compile msn-pecan to win32.
-
-Next step would be to build a library that clients can actually use, and then
-compile essential plugins, such as ssl.
+It's completely ABI compatible with libpurple so it can be used as a
+replacement.
