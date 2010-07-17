@@ -222,13 +222,28 @@ msn_switchboard_add_user(MsnSwitchBoard *swboard, const char *user)
 {
 	MsnCmdProc *cmdproc;
 	PurpleAccount *account;
+	char *semicolon;
+	char *passport;
 
 	g_return_if_fail(swboard != NULL);
 
 	cmdproc = swboard->cmdproc;
 	account = cmdproc->session->account;
 
-	swboard->users = g_list_prepend(swboard->users, g_strdup(user));
+	semicolon = strchr(user, ';');
+	/* We don't really care about the machine ID. */
+	if (semicolon)
+		passport = g_strndup(user, semicolon - user);
+	else
+		passport = g_strdup(user);
+
+	/* Don't add multiple endpoints to the conversation. */
+	if (g_list_find_custom(swboard->users, passport, (GCompareFunc)strcmp)) {
+		g_free(passport);
+		return;
+	}
+
+	swboard->users = g_list_prepend(swboard->users, passport);
 	swboard->current_users++;
 	swboard->empty = FALSE;
 
@@ -922,7 +937,7 @@ msn_switchboard_show_ink(MsnSwitchBoard *swboard, const char *passport,
 	}
 
 	imgid = purple_imgstore_add_with_id(image_data, image_len, NULL);
-	image_msg = g_strdup_printf("<IMG ID='%d'/>", imgid);
+	image_msg = g_strdup_printf("<IMG ID='%d'>", imgid);
 
 	if (swboard->current_users > 1 ||
 		((swboard->conv != NULL) &&

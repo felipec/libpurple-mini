@@ -5,6 +5,8 @@ includedir=${prefix}/include
 datarootdir=${prefix}/share
 datadir=${prefix}/share
 
+plugindir=${libdir}/purple-@PURPLE_MAJOR_VERSION@
+
 Name: libpurple
 Description: libpurple is a GLib-based instant messenger library.
 Version: @version@

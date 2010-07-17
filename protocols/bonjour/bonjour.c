@@ -101,6 +101,8 @@ bonjour_login(PurpleAccount *account)
 
 	/* Start waiting for jabber connections (iChat style) */
 	bd->jabber_data = g_new0(BonjourJabber, 1);
+	bd->jabber_data->socket = -1;
+	bd->jabber_data->socket6 = -1;
 	bd->jabber_data->port = purple_account_get_int(account, "port", BONJOUR_DEFAULT_PORT);
 	bd->jabber_data->account = account;
 
@@ -392,11 +394,8 @@ bonjour_tooltip_text(PurpleBuddy *buddy, PurpleNotifyUserInfo *user_info, gboole
 		purple_notify_user_info_add_pair(user_info, _("XMPP Account"), bb->jid);
 }
 
-static void
-bonjour_group_buddy(PurpleConnection *connection, const char *who, const char *old_group, const char *new_group)
-{
+static void bonjour_do_group_change(PurpleBuddy *buddy, const char *new_group) {
 	PurpleBlistNodeFlags oldflags;
-	PurpleBuddy *buddy = purple_find_buddy(connection->account, who);
 
 	if (buddy == NULL)
 		return;
@@ -404,10 +403,35 @@ bonjour_group_buddy(PurpleConnection *connection, const char *who, const char *o
 	oldflags = purple_blist_node_get_flags((PurpleBlistNode *)buddy);
 
 	/* If we're moving them out of the bonjour group, make them persistent */
-	if (strcmp(new_group, BONJOUR_GROUP_NAME) == 0)
+	if (purple_strequal(new_group, BONJOUR_GROUP_NAME))
 		purple_blist_node_set_flags((PurpleBlistNode *)buddy, oldflags | PURPLE_BLIST_NODE_FLAG_NO_SAVE);
 	else
 		purple_blist_node_set_flags((PurpleBlistNode *)buddy, oldflags ^ PURPLE_BLIST_NODE_FLAG_NO_SAVE);
+
+}
+
+static void
+bonjour_group_buddy(PurpleConnection *connection, const char *who, const char *old_group, const char *new_group)
+{
+	PurpleBuddy *buddy = purple_find_buddy(connection->account, who);
+
+	bonjour_do_group_change(buddy, new_group);
+
+}
+
+static void
+bonjour_rename_group(PurpleConnection *connection, const char *old_name, PurpleGroup *group, GList *moved_buddies)
+{
+	GList *cur;
+	const char *new_group;
+	PurpleBuddy *buddy;
+
+	new_group = purple_group_get_name(group);
+
+	for (cur = moved_buddies; cur; cur = cur->next) {
+		buddy = cur->data;
+		bonjour_do_group_change(buddy, new_group);
+	}
 
 }
 
@@ -478,7 +502,7 @@ static PurplePluginProtocolInfo prpl_info =
 	NULL,                                                    /* get_cb_away */
 	NULL,                                                    /* alias_buddy */
 	bonjour_group_buddy,                                     /* group_buddy */
-	NULL,                                                    /* rename_group */
+	bonjour_rename_group,                                    /* rename_group */
 	NULL,                                                    /* buddy_free */
 	bonjour_convo_closed,                                    /* convo_closed */
 	NULL,                                                    /* normalize */
@@ -503,7 +527,10 @@ static PurplePluginProtocolInfo prpl_info =
 	sizeof(PurplePluginProtocolInfo),                        /* struct_size */
 	NULL,                                                    /* get_account_text_table */
 	NULL,                                                    /* initiate_media */
-	NULL                                                     /* can_do_media */
+	NULL,                                                    /* get_media_caps */
+	NULL,                                                    /* get_moods */
+	NULL,                                                    /* set_public_alias */
+	NULL                                                     /* get_public_alias */
 };
 
 static PurplePluginInfo info =

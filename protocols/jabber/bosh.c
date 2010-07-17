@@ -78,13 +78,11 @@ struct _PurpleBOSHConnection {
 	} state;
 	guint8 failed_connections;
 
-	int max_inactivity;
 	int wait;
 
 	int max_requests;
 	int requests;
 
-	guint inactivity_timer;
 	guint send_timer;
 };
 
@@ -239,8 +237,6 @@ jabber_bosh_connection_destroy(PurpleBOSHConnection *conn)
 
 	if (conn->send_timer)
 		purple_timeout_remove(conn->send_timer);
-	if (conn->inactivity_timer)
-		purple_timeout_remove(conn->inactivity_timer);
 
 	purple_circ_buffer_destroy(conn->pending);
 
@@ -369,8 +365,8 @@ jabber_bosh_connection_send(PurpleBOSHConnection *conn,
 	                "sid='%s' "
 	                "to='%s' "
 	                "xml:lang='en' "
-	                "xmlns='http://jabber.org/protocol/httpbind' "
-	                "xmlns:xmpp='urn:xmpp:xbosh'",
+	                "xmlns='" NS_BOSH "' "
+	                "xmlns:xmpp='" NS_XMPP_BOSH "'",
 	                ++conn->rid,
 	                conn->sid,
 	                conn->js->user->domain);
@@ -401,7 +397,8 @@ jabber_bosh_connection_send(PurpleBOSHConnection *conn,
 
 void jabber_bosh_connection_close(PurpleBOSHConnection *conn)
 {
-	jabber_bosh_connection_send(conn, PACKET_TERMINATE, NULL);
+	if (conn->state == BOSH_CONN_ONLINE)
+		jabber_bosh_connection_send(conn, PACKET_TERMINATE, NULL);
 }
 
 static gboolean jabber_bosh_connection_error_check(PurpleBOSHConnection *conn, xmlnode *node) {
@@ -432,34 +429,14 @@ send_timer_cb(gpointer data)
 	return FALSE;
 }
 
-static gboolean
-bosh_inactivity_cb(gpointer data)
+void
+jabber_bosh_connection_send_keepalive(PurpleBOSHConnection *bosh)
 {
-	PurpleBOSHConnection *bosh = data;
-	bosh->inactivity_timer = 0;
-
 	if (bosh->send_timer != 0)
 		purple_timeout_remove(bosh->send_timer);
 
 	/* clears bosh->send_timer */
 	send_timer_cb(bosh);
-
-	return FALSE;
-}
-
-static void
-restart_inactivity_timer(PurpleBOSHConnection *conn)
-{
-	if (conn->inactivity_timer != 0) {
-		purple_timeout_remove(conn->inactivity_timer);
-		conn->inactivity_timer = 0;
-	}
-
-	if (conn->max_inactivity != 0) {
-		conn->inactivity_timer =
-			purple_timeout_add_seconds(conn->max_inactivity - 5 /* rounding */,
-			                           bosh_inactivity_cb, conn);
-	}
 }
 
 static void jabber_bosh_connection_received(PurpleBOSHConnection *conn, xmlnode *node) {
@@ -475,6 +452,18 @@ static void jabber_bosh_connection_received(PurpleBOSHConnection *conn, xmlnode 
 		/* jabber_process_packet might free child */
 		xmlnode *next = child->next;
 		if (child->type == XMLNODE_TYPE_TAG) {
+			const char *xmlns = xmlnode_get_namespace(child);
+			/*
+			 * Workaround for non-compliant servers that don't stamp
+			 * the right xmlns on these packets.  See #11315.
+			 */
+			if ((xmlns == NULL /* shouldn't happen, but is equally wrong */ ||
+					g_str_equal(xmlns, NS_BOSH)) &&
+				(g_str_equal(child->name, "iq") ||
+				 g_str_equal(child->name, "message") ||
+				 g_str_equal(child->name, "presence"))) {
+				xmlnode_set_namespace(child, NS_XMPP_CLIENT);
+			}
 			jabber_process_packet(js, &child);
 		}
 
@@ -508,7 +497,7 @@ static void boot_response_cb(PurpleBOSHConnection *conn, xmlnode *node) {
 	}
 
 	if (version) {
-		const char *dot = strstr(version, ".");
+		const char *dot = strchr(version, '.');
 		int major, minor = 0;
 
 		purple_debug_info("jabber", "BOSH connection manager version %s\n", version);
@@ -528,19 +517,20 @@ static void boot_response_cb(PurpleBOSHConnection *conn, xmlnode *node) {
 	}
 
 	if (inactivity) {
-		conn->max_inactivity = atoi(inactivity);
-		if (conn->max_inactivity <= 5) {
+		js->max_inactivity = atoi(inactivity);
+		if (js->max_inactivity <= 5) {
 			purple_debug_warning("jabber", "Ignoring bogusly small inactivity: %s\n",
 			                     inactivity);
-			conn->max_inactivity = 0;
+			/* Leave it at the default */
 		} else {
-			/* TODO: Integrate this with jabber.c keepalive checks... */
 			/* TODO: Can this check fail? It shouldn't */
-			if (conn->inactivity_timer == 0) {
+			js->max_inactivity -= 5; /* rounding */
+
+			if (js->inactivity_timer == 0) {
 				purple_debug_misc("jabber", "Starting BOSH inactivity timer "
 						"for %d secs (compensating for rounding)\n",
-						conn->max_inactivity - 5);
-				restart_inactivity_timer(conn);
+						js->max_inactivity);
+				jabber_stream_restart_inactivity_timer(js);
 			}
 		}
 	}
@@ -566,13 +556,13 @@ static void jabber_bosh_connection_boot(PurpleBOSHConnection *conn) {
 	                "xml:lang='en' "
 	                "xmpp:version='1.0' "
 	                "ver='1.6' "
-	                "xmlns:xmpp='urn:xmpp:bosh' "
+	                "xmlns:xmpp='" NS_XMPP_BOSH "' "
 	                "rid='%" G_GUINT64_FORMAT "' "
 /* TODO: This should be adjusted/adjustable automatically according to
  * realtime network behavior */
 	                "wait='60' "
 	                "hold='1' "
-	                "xmlns='http://jabber.org/protocol/httpbind'/>",
+	                "xmlns='" NS_BOSH "'/>",
 	                conn->js->user->domain,
 	                ++conn->rid);
 
@@ -963,7 +953,7 @@ http_connection_send_request(PurpleHTTPConnection *conn, const GString *req)
 	size_t len;
 
 	/* Sending something to the server, restart the inactivity timer */
-	restart_inactivity_timer(conn->bosh);
+	jabber_stream_restart_inactivity_timer(conn->bosh->js);
 
 	data = g_strdup_printf("POST %s HTTP/1.1\r\n"
 	                       "Host: %s\r\n"

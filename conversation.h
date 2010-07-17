@@ -368,7 +368,8 @@ extern "C" {
  * @param type    The type of conversation.
  * @param account The account opening the conversation window on the purple
  *                user's end.
- * @param name    The name of the conversation.
+ * @param name    The name of the conversation.  For PURPLE_CONV_TYPE_IM,
+ *                this is the name of the buddy.
  *
  * @return The new conversation.
  */
@@ -644,7 +645,6 @@ PurpleConversation *purple_find_conversation_with_account(
 void purple_conversation_write(PurpleConversation *conv, const char *who,
 		const char *message, PurpleMessageFlags flags,
 		time_t mtime);
-
 
 /**
 	Set the features as supported for the given conversation.
@@ -1025,7 +1025,8 @@ PurpleConversation *purple_conv_chat_get_conversation(const PurpleConvChat *chat
 GList *purple_conv_chat_set_users(PurpleConvChat *chat, GList *users);
 
 /**
- * Returns a list of users in the chat room.
+ * Returns a list of users in the chat room.  The members of the list
+ * are PurpleConvChatBuddy objects.
  *
  * @param chat The chat.
  *

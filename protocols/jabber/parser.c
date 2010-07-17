@@ -43,17 +43,47 @@ jabber_parser_element_start_libxml(void *user_data,
 
 	if(!element_name) {
 		return;
-	} else if(!xmlStrcmp(element_name, (xmlChar*) "stream")) {
-		js->protocol_version = JABBER_PROTO_0_9;
-		for(i=0; i < nb_attributes * 5; i += 5) {
-			int attrib_len = attributes[i+4] - attributes[i+3];
-			char *attrib = g_malloc(attrib_len + 1);
-			memcpy(attrib, attributes[i+3], attrib_len);
-			attrib[attrib_len] = '\0';
+	} else if (js->stream_id == NULL) {
+		/* Sanity checking! */
+		if (0 != xmlStrcmp(element_name, (xmlChar *) "stream") ||
+				0 != xmlStrcmp(namespace, (xmlChar *) NS_XMPP_STREAMS)) {
+			/* We were expecting a <stream:stream/> opening stanza, but
+			 * didn't get it. Bad!
+			 */
+			purple_debug_error("jabber", "Expecting stream header, got %s with "
+			                   "xmlns %s\n", element_name, namespace);
+			purple_connection_error_reason(js->gc,
+					PURPLE_CONNECTION_ERROR_AUTHENTICATION_IMPOSSIBLE,
+					_("XMPP stream header missing"));
+			return;
+		}
 
-			if(!xmlStrcmp(attributes[i], (xmlChar*) "version")
-					&& !strcmp(attrib, "1.0")) {
-				js->protocol_version = JABBER_PROTO_1_0;
+		js->protocol_version.major = 0;
+		js->protocol_version.minor = 9;
+
+		for (i = 0; i < nb_attributes * 5; i += 5) {
+			int attrib_len = attributes[i+4] - attributes[i+3];
+			char *attrib = g_strndup((gchar *)attributes[i+3], attrib_len);
+
+			if(!xmlStrcmp(attributes[i], (xmlChar*) "version")) {
+				const char *dot = strchr(attrib, '.');
+
+				js->protocol_version.major = atoi(attrib);
+				js->protocol_version.minor = dot ? atoi(dot + 1) : 0;
+
+				if (js->protocol_version.major > 1) {
+					/* TODO: Send <unsupported-version/> error */
+					purple_connection_error_reason(js->gc,
+							PURPLE_CONNECTION_ERROR_AUTHENTICATION_IMPOSSIBLE,
+							_("XMPP Version Mismatch"));
+					g_free(attrib);
+					return;
+				}
+
+				if (js->protocol_version.major == 0 && js->protocol_version.minor != 9) {
+					purple_debug_warning("jabber", "Treating version %s as 0.9 for backward "
+					                     "compatibility\n", attrib);
+				}
 				g_free(attrib);
 			} else if(!xmlStrcmp(attributes[i], (xmlChar*) "id")) {
 				g_free(js->stream_id);
@@ -62,11 +92,11 @@ jabber_parser_element_start_libxml(void *user_data,
 				g_free(attrib);
 			}
 		}
-		if(js->protocol_version == JABBER_PROTO_0_9)
-			js->auth_type = JABBER_AUTH_IQ_AUTH;
 
-		if(js->state == JABBER_STREAM_INITIALIZING || js->state == JABBER_STREAM_INITIALIZING_ENCRYPTION)
-			jabber_stream_set_state(js, JABBER_STREAM_AUTHENTICATING);
+		if (js->stream_id == NULL)
+			purple_connection_error_reason(js->gc,
+					PURPLE_CONNECTION_ERROR_AUTHENTICATION_IMPOSSIBLE,
+					_("XMPP stream missing ID"));
 	} else {
 
 		if(js->current)
@@ -93,13 +123,10 @@ jabber_parser_element_start_libxml(void *user_data,
 			const char *attrib_ns = (const char *)attributes[i+2];
 			char *txt;
 			int attrib_len = attributes[i+4] - attributes[i+3];
-			char *attrib = g_malloc(attrib_len + 1);
-
-			memcpy(attrib, attributes[i+3], attrib_len);
-			attrib[attrib_len] = '\0';
+			char *attrib = g_strndup((gchar *)attributes[i+3], attrib_len);
 
 			txt = attrib;
-			attrib = purple_unescape_html(txt);
+			attrib = purple_unescape_text(txt);
 			g_free(txt);
 			xmlnode_set_attrib_full(node, name, attrib_ns, prefix, attrib);
 			g_free(attrib);
@@ -150,10 +177,18 @@ jabber_parser_structured_error_handler(void *user_data, xmlErrorPtr error)
 	JabberStream *js = user_data;
 
 	if (error->level == XML_ERR_WARNING && error->message != NULL
-			&& strcmp(error->message, "xmlns: URI vcard-temp is not absolute\n") == 0)
+			&& g_str_equal(error->message, "xmlns: URI vcard-temp is not absolute\n"))
 		/*
 		 * This message happens when parsing vcards, and is normal, so don't
 		 * bother logging it because people scare easily.
+		 */
+		return;
+
+	if (error->level == XML_ERR_FATAL && error->code == XML_ERR_DOCUMENT_END)
+		/*
+		 * This is probably more annoying than the vcard-temp error; it occurs
+		 * because we disconnect in most cases without waiting for the receiving
+		 * </stream:stream> (limitations of libpurple)
 		 */
 		return;
 
@@ -255,6 +290,19 @@ void jabber_parser_process(JabberStream *js, const char *buf, int len)
 				                                _("XML Parse error"));
 				break;
 		}
+	}
+
+	if (js->protocol_version.major == 0 && js->protocol_version.minor == 9 &&
+			!js->gc->disconnect_timeout &&
+			(js->state == JABBER_STREAM_INITIALIZING ||
+			 js->state == JABBER_STREAM_INITIALIZING_ENCRYPTION)) {
+		/*
+		 * Legacy servers don't advertise features, so if we've just gotten
+		 * the opening <stream:stream> and there was no version, we need to
+		 * immediately start legacy IQ auth.
+		 */
+		jabber_stream_set_state(js, JABBER_STREAM_AUTHENTICATING);
+		jabber_auth_start_old(js);
 	}
 }
 

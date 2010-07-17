@@ -244,15 +244,6 @@ struct _MsnNexusUpdateCallback {
 	gpointer data;
 };
 
-#if !GLIB_CHECK_VERSION(2, 12, 0)
-static gboolean
-nexus_remove_all_cb(gpointer key, gpointer val, gpointer data)
-{
-	return TRUE;
-}
-#endif
-
-
 static gboolean
 nexus_parse_token(MsnNexus *nexus, int id, xmlnode *node)
 {
@@ -281,12 +272,7 @@ nexus_parse_token(MsnNexus *nexus, int id, xmlnode *node)
 	if (token_str == NULL)
 		return FALSE;
 
-#if GLIB_CHECK_VERSION(2, 12, 0)
 	g_hash_table_remove_all(nexus->tokens[id].token);
-#else
-	g_hash_table_foreach_remove(nexus->tokens[id].token,
-		nexus_remove_all_cb, NULL);
-#endif
 
 	elems = g_strsplit(token_str, "&", 0);
 
@@ -338,8 +324,10 @@ nexus_parse_collection(MsnNexus *nexus, int id, xmlnode *collection)
 			xmlnode *cipher = xmlnode_get_child(node, "RequestedSecurityToken/EncryptedData/CipherData/CipherValue");
 			xmlnode *secret = xmlnode_get_child(node, "RequestedProofToken/BinarySecret");
 
+			g_free(nexus->cipher);
 			nexus->cipher = xmlnode_get_data(cipher);
 			data = xmlnode_get_data(secret);
+			g_free(nexus->secret);
 			nexus->secret = (char *)purple_base64_decode(data, NULL);
 			g_free(data);
 
@@ -397,7 +385,14 @@ msn_nexus_connect(MsnNexus *nexus)
 
 	username = purple_account_get_username(session->account);
 	password = purple_connection_get_password(session->account->gc);
-	password_xml = g_markup_escape_text(password, MIN(strlen(password), 16));
+	if (g_utf8_strlen(password, -1) > 16) {
+		/* max byte size for 16 utf8 characters is 64 + 1 for the null */
+		gchar truncated[65];
+		g_utf8_strncpy(truncated, password, 16);
+		password_xml = g_markup_escape_text(truncated, -1);
+	} else {
+		password_xml = g_markup_escape_text(password, -1);
+	}
 
 	purple_debug_info("msn", "Logging on %s, with policy '%s', nonce '%s'\n",
 	                  username, nexus->policy, nexus->nonce);
@@ -506,6 +501,7 @@ nexus_got_update_cb(MsnSoapMessage *req, MsnSoapMessage *resp, gpointer data)
 	}
 
 	g_free(ud);
+	g_free(key);
 }
 
 void

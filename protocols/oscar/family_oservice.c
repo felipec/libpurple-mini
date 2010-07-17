@@ -27,6 +27,24 @@
 
 #include "cipher.h"
 
+/*
+ * Each time we make a FLAP connection to an oscar server the server gives
+ * us a list of rate classes.  Each rate class has different properties for
+ * how frequently we can send SNACs in that rate class before we become
+ * throttled or disconnected.
+ *
+ * The server also gives us a list of every available SNAC and tells us which
+ * rate class it's in.  There are a lot of different SNACs, so this list can be
+ * fairly large.  One important characteristic of these rate classes is that
+ * currently (and since at least 2004) most SNACs are in the same rate class.
+ *
+ * One optimization we can do to save memory is to only keep track of SNACs
+ * that are in classes other than this default rate class.  So if we try to
+ * look up a SNAC and it's not in our hash table then we can assume that it's
+ * in the default rate class.
+ */
+#define OSCAR_DEFAULT_RATECLASS 1
+
 /* Subtype 0x0002 - Client Online */
 void
 aim_srv_clientready(OscarData *od, FlapConnection *conn)
@@ -319,8 +337,11 @@ rateresp(OscarData *od, FlapConnection *conn, aim_module_t *mod, FlapFrame *fram
 	for (i = 0; i < numclasses; i++)
 	{
 		struct rateclass *rateclass;
+		guint32 delta;
+		struct timeval now;
 
-		rateclass = g_new0(struct rateclass, 1);
+		gettimeofday(&now, NULL);
+		rateclass = g_new(struct rateclass, 1);
 
 		rateclass->classid = byte_stream_get16(bs);
 		rateclass->windowsize = byte_stream_get32(bs);
@@ -330,21 +351,21 @@ rateresp(OscarData *od, FlapConnection *conn, aim_module_t *mod, FlapFrame *fram
 		rateclass->disconnect = byte_stream_get32(bs);
 		rateclass->current = byte_stream_get32(bs);
 		rateclass->max = byte_stream_get32(bs);
+		if (mod->version >= 3) {
+			delta = byte_stream_get32(bs);
+			rateclass->dropping_snacs = byte_stream_get8(bs);
+		} else {
+			delta = 0;
+			rateclass->dropping_snacs = 0;
+		}
 
-		/*
-		 * The server will send an extra five bytes of parameters
-		 * depending on the version we advertised in 1/17.  If we
-		 * didn't send 1/17 (evil!), then this will crash and you
-		 * die, as it will default to the old version but we have
-		 * the new version hardcoded here.
-		 */
-		if (mod->version >= 3)
-			byte_stream_getrawbuf(bs, rateclass->unknown, sizeof(rateclass->unknown));
+		rateclass->last.tv_sec = now.tv_sec - delta / 1000;
+		rateclass->last.tv_usec = now.tv_usec - (delta % 1000) * 1000;
 
-		rateclass->members = g_hash_table_new(g_direct_hash, g_direct_equal);
-		rateclass->last.tv_sec = 0;
-		rateclass->last.tv_usec = 0;
 		conn->rateclasses = g_slist_prepend(conn->rateclasses, rateclass);
+
+		if (rateclass->classid == OSCAR_DEFAULT_RATECLASS)
+			conn->default_rateclass = rateclass;
 	}
 	conn->rateclasses = g_slist_reverse(conn->rateclasses);
 
@@ -360,6 +381,15 @@ rateresp(OscarData *od, FlapConnection *conn, aim_module_t *mod, FlapFrame *fram
 		classid = byte_stream_get16(bs);
 		count = byte_stream_get16(bs);
 
+		if (classid == OSCAR_DEFAULT_RATECLASS) {
+			/*
+			 * Don't bother adding these SNACs to the hash table.  See the
+			 * comment for OSCAR_DEFAULT_RATECLASS at the top of this file.
+			 */
+			byte_stream_advance(bs, 4 * count);
+			continue;
+		}
+
 		rateclass = rateclass_find(conn->rateclasses, classid);
 
 		for (j = 0; j < count; j++)
@@ -370,9 +400,9 @@ rateresp(OscarData *od, FlapConnection *conn, aim_module_t *mod, FlapFrame *fram
 			subtype = byte_stream_get16(bs);
 
 			if (rateclass != NULL)
-				g_hash_table_insert(rateclass->members,
+				g_hash_table_insert(conn->rateclass_members,
 						GUINT_TO_POINTER((group << 16) + subtype),
-						GUINT_TO_POINTER(TRUE));
+						rateclass);
 		}
 	}
 
@@ -383,8 +413,7 @@ rateresp(OscarData *od, FlapConnection *conn, aim_module_t *mod, FlapFrame *fram
 	 */
 
 	/*
-	 * Last step in the conn init procedure is to acknowledge that we
-	 * agree to these draconian limitations.
+	 * Subscribe to rate change information for all rate classes.
 	 */
 	aim_srv_rates_addparam(od, conn);
 
@@ -447,11 +476,19 @@ aim_srv_rates_delparam(OscarData *od, FlapConnection *conn)
 static int
 ratechange(OscarData *od, FlapConnection *conn, aim_module_t *mod, FlapFrame *frame, aim_modsnac_t *snac, ByteStream *bs)
 {
-	int ret = 0;
-	aim_rxcallback_t userfunc;
 	guint16 code, classid;
 	struct rateclass *rateclass;
+	guint32 delta;
+	struct timeval now;
+	static const char *codes[5] = {
+		"invalid",
+		"change",
+		"warning",
+		"limit",
+		"limit cleared",
+	};
 
+	gettimeofday(&now, NULL);
 	code = byte_stream_get16(bs);
 	classid = byte_stream_get16(bs);
 
@@ -467,11 +504,32 @@ ratechange(OscarData *od, FlapConnection *conn, aim_module_t *mod, FlapFrame *fr
 	rateclass->disconnect = byte_stream_get32(bs);
 	rateclass->current = byte_stream_get32(bs);
 	rateclass->max = byte_stream_get32(bs);
+	if (mod->version >= 3) {
+		delta = byte_stream_get32(bs);
+		rateclass->dropping_snacs = byte_stream_get8(bs);
+	} else {
+		delta = 0;
+		rateclass->dropping_snacs = 0;
+	}
 
-	if ((userfunc = aim_callhandler(od, snac->family, snac->subtype)))
-		ret = userfunc(od, conn, frame, code, classid, rateclass->windowsize, rateclass->clear, rateclass->alert, rateclass->limit, rateclass->disconnect, rateclass->current, rateclass->max);
+	rateclass->last.tv_sec = now.tv_sec - delta / 1000;
+	rateclass->last.tv_usec = now.tv_usec - (delta % 1000) * 1000;
 
-	return ret;
+	purple_debug_misc("oscar", "rate %s (param ID 0x%04hx): curavg = %u, "
+			"maxavg = %u, alert at %u, clear warning at %u, limit at %u, "
+			"disconnect at %u, delta is %u, dropping is %u (window size = %u)\n",
+			(code < 5) ? codes[code] : codes[0], rateclass->classid,
+			rateclass->current, rateclass->max, rateclass->alert,
+			rateclass->clear, rateclass->limit, rateclass->disconnect,
+			delta, rateclass->dropping_snacs, rateclass->windowsize);
+
+	if (code == AIM_RATE_CODE_LIMIT) {
+		purple_debug_warning("oscar",  "The last action you attempted "
+				"could not be performed because you are over the rate "
+				"limit. Please wait 10 seconds and try again.\n");
+	}
+
+	return 1;
 }
 
 /*
@@ -1036,8 +1094,6 @@ aim_sendmemblock(OscarData *od, FlapConnection *conn, guint32 offset, guint32 le
 static int
 aim_parse_extstatus(OscarData *od, FlapConnection *conn, aim_module_t *mod, FlapFrame *frame, aim_modsnac_t *snac, ByteStream *bs)
 {
-	int ret = 0;
-	aim_rxcallback_t userfunc;
 	guint16 type;
 	guint8 flags, length;
 
@@ -1050,25 +1106,54 @@ aim_parse_extstatus(OscarData *od, FlapConnection *conn, aim_module_t *mod, Flap
 	 * A flag of 0x40 could mean "I don't have your icon, upload it"
 	 */
 
-	if ((userfunc = aim_callhandler(od, snac->family, snac->subtype))) {
-		switch (type) {
+	switch (type) {
 		case 0x0000:
 		case 0x0001: { /* buddy icon checksum */
 			/* not sure what the difference between 1 and 0 is */
 			guint8 *md5 = byte_stream_getraw(bs, length);
-			ret = userfunc(od, conn, frame, type, flags, length, md5);
+
+			if ((flags == 0x00) || (flags == 0x41)) {
+				if (!flap_connection_getbytype(od, SNAC_FAMILY_BART) && !od->iconconnecting) {
+					od->iconconnecting = TRUE;
+					od->set_icon = TRUE;
+					aim_srv_requestnew(od, SNAC_FAMILY_BART);
+				} else {
+					PurpleAccount *account = purple_connection_get_account(od->gc);
+					PurpleStoredImage *img = purple_buddy_icons_find_account_icon(account);
+					if (img == NULL) {
+						aim_ssi_delicon(od);
+					} else {
+
+						purple_debug_info("oscar",
+										"Uploading icon to icon server\n");
+						aim_bart_upload(od, purple_imgstore_get_data(img),
+						                purple_imgstore_get_size(img));
+						purple_imgstore_unref(img);
+					}
+				}
+			} else if (flags == 0x81) {
+				PurpleAccount *account = purple_connection_get_account(od->gc);
+				PurpleStoredImage *img = purple_buddy_icons_find_account_icon(account);
+				if (img == NULL)
+					aim_ssi_delicon(od);
+				else {
+					aim_ssi_seticon(od, md5, length);
+					purple_imgstore_unref(img);
+				}
+			}
+
 			g_free(md5);
-			} break;
-		case 0x0002: { /* available message */
+		} break;
+
+		case 0x0002: {
+			/* We just set an available message? */
 			/* there is a second length that is just for the message */
 			char *msg = byte_stream_getstr(bs, byte_stream_get16(bs));
-			ret = userfunc(od, conn, frame, msg);
 			g_free(msg);
-			} break;
-		}
+		} break;
 	}
 
-	return ret;
+	return 0;
 }
 
 static int

@@ -52,10 +52,7 @@ static gboolean
 send_keepalive(gpointer data)
 {
 	PurpleConnection *gc = data;
-	PurplePluginProtocolInfo *prpl_info = NULL;
-
-	if (gc == NULL)
-		return TRUE;
+	PurplePluginProtocolInfo *prpl_info;
 
 	/* Only send keep-alives if we haven't heard from the
 	 * server in a while.
@@ -63,12 +60,8 @@ send_keepalive(gpointer data)
 	if ((time(NULL) - gc->last_received) < KEEPALIVE_INTERVAL)
 		return TRUE;
 
-	if (gc->prpl == NULL)
-		return TRUE;
-
 	prpl_info = PURPLE_PLUGIN_PROTOCOL_INFO(gc->prpl);
-
-	if (prpl_info && prpl_info->keepalive)
+	if (prpl_info->keepalive)
 		prpl_info->keepalive(gc);
 
 	return TRUE;
@@ -379,6 +372,7 @@ purple_connection_set_state(PurpleConnection *gc, PurpleConnectionState state)
 		purple_blist_add_account(account);
 
 		purple_signal_emit(purple_connections_get_handle(), "signed-on", gc);
+		purple_signal_emit_return_1(purple_connections_get_handle(), "autojoin", gc);
 
 		serv_set_permit_deny(gc);
 
@@ -721,6 +715,11 @@ purple_connections_init(void)
 	                                        PURPLE_SUBTYPE_CONNECTION),
 	                       purple_value_new(PURPLE_TYPE_ENUM),
 	                       purple_value_new(PURPLE_TYPE_STRING));
+
+	purple_signal_register(handle, "autojoin",
+	                       purple_marshal_BOOLEAN__POINTER, NULL, 1,
+	                       purple_value_new(PURPLE_TYPE_SUBTYPE,
+	                                        PURPLE_SUBTYPE_CONNECTION));
 
 }
 

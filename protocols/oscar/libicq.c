@@ -41,8 +41,7 @@ static PurplePluginProtocolInfo prpl_info =
 	OPT_PROTO_MAIL_CHECK | OPT_PROTO_IM_IMAGE,
 	NULL,					/* user_splits */
 	NULL,					/* protocol_options */
-	{"gif,jpeg,bmp,ico", 48, 48, 52, 64, 7168,
-		PURPLE_ICON_SCALE_SEND | PURPLE_ICON_SCALE_DISPLAY},	/* icon_spec */
+	{"gif,jpeg,bmp,ico", 0, 0, 100, 100, 7168, PURPLE_ICON_SCALE_DISPLAY}, /* icon_spec */
 	oscar_list_icon_icq,		/* list_icon */
 	oscar_list_emblem,		/* list_emblems */
 	oscar_status_text,		/* status_text */
@@ -108,7 +107,10 @@ static PurplePluginProtocolInfo prpl_info =
 	sizeof(PurplePluginProtocolInfo),       /* struct_size */
 	icq_get_account_text_table, /* get_account_text_table */
 	NULL,					/* initiate_media */
-	NULL					/* can_do_media */
+	NULL,					/* can_do_media */
+	oscar_get_purple_moods, /* get_moods */
+	NULL,					/* set_public_alias */
+	NULL					/* get_public_alias */
 };
 
 static PurplePluginInfo info =
@@ -153,7 +155,7 @@ init_plugin(PurplePlugin *plugin)
 {
 	PurpleAccountOption *option;
 
-	oscar_init(PURPLE_PLUGIN_PROTOCOL_INFO(plugin));
+	oscar_init(plugin);
 
 	option = purple_account_option_string_new(_("Encoding"), "encoding", OSCAR_DEFAULT_CUSTOM_ENCODING);
 	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options, option);
