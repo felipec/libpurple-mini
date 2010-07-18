@@ -164,6 +164,10 @@ headers := account.h \
 	   xmlnode.h \
 	   whiteboard.h
 
+media_headers := media/candidate.h \
+		 media/codec.h \
+		 media/enum-types.h
+
 headers += version.h
 
 ifeq ($(PLATFORM),mingw32)
@@ -265,7 +269,9 @@ endif
 	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig/$(module).pc
 	# includes
 	mkdir -p $(D)/$(includedir)/libpurple
+	mkdir -p $(D)/$(includedir)/libpurple/media
 	install -m 644 $(headers) $(D)/$(includedir)/libpurple
+	install -m 644 $(media_headers) $(D)/$(includedir)/libpurple/media
 	install -m 644 purple-client.h $(D)/$(includedir)/libpurple/purple.h
 
 uninstall:
