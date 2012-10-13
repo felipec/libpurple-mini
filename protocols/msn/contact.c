@@ -726,7 +726,7 @@ msn_parse_addressbook_contacts(MsnSession *session, xmlnode *node)
 				char *name, *value;
 				name = xmlnode_get_data(xmlnode_get_child(annotation, "Name"));
 				value = xmlnode_get_data(xmlnode_get_child(annotation, "Value"));
-				if (!strcmp(name, "MSN.IM.MPOP")) {
+				if (name && g_str_equal(name, "MSN.IM.MPOP")) {
 					if (!value || atoi(value) != 0)
 						session->enable_mpop = TRUE;
 					else
@@ -802,9 +802,12 @@ msn_parse_addressbook_contacts(MsnSession *session, xmlnode *node)
 			Name = g_strdup(passport);
 
 		for (annotation = xmlnode_get_child(contactInfo, "annotations/Annotation");
-				annotation; annotation = xmlnode_get_next_twin(annotation)) {
+		     annotation;
+		     annotation = xmlnode_get_next_twin(annotation)) {
 			char *name;
 			name = xmlnode_get_data(xmlnode_get_child(annotation, "Name"));
+			if (!name)
+				continue;
 			if (!strcmp(name, "AB.NickName"))
 				alias = xmlnode_get_data(xmlnode_get_child(annotation, "Value"));
 			else if (!strcmp(name, "MSN.IM.HasSharedFolder"))
@@ -864,6 +867,21 @@ msn_parse_addressbook_contacts(MsnSession *session, xmlnode *node)
 	g_free(alias);
 }
 
+static void
+msn_parse_addressbook_circles(MsnSession *session, xmlnode *node)
+{
+	xmlnode *ticket;
+
+	/* TODO: Parse groups */
+
+	ticket = xmlnode_get_child(node, "CircleTicket");
+	if (ticket) {
+		char *data = xmlnode_get_data(ticket);
+		msn_notification_send_circle_auth(session, data);
+		g_free(data);
+	}
+}
+
 static gboolean
 msn_parse_addressbook(MsnSession *session, xmlnode *node)
 {
@@ -871,6 +889,7 @@ msn_parse_addressbook(MsnSession *session, xmlnode *node)
 	xmlnode *groups;
 	xmlnode *contacts;
 	xmlnode *abNode;
+	xmlnode *circleNode;
 	xmlnode *fault;
 
 	if ((fault = xmlnode_get_child(node, "Body/Fault"))) {
@@ -897,7 +916,7 @@ msn_parse_addressbook(MsnSession *session, xmlnode *node)
 		return FALSE;
 	}
 
-	result = xmlnode_get_child(node, "Body/ABFindAllResponse/ABFindAllResult");
+	result = xmlnode_get_child(node, "Body/ABFindContactsPagedResponse/ABFindContactsPagedResult");
 	if (result == NULL) {
 		purple_debug_misc("msn", "Received no address book update\n");
 		return TRUE;
@@ -906,7 +925,7 @@ msn_parse_addressbook(MsnSession *session, xmlnode *node)
 	/* I don't see this "groups" tag documented on msnpiki, need to find out
 	   if they are really there, and update msnpiki */
 	/*Process Group List*/
-	groups = xmlnode_get_child(result, "groups");
+	groups = xmlnode_get_child(result, "Groups");
 	if (groups != NULL) {
 		msn_parse_addressbook_groups(session, groups);
 	}
@@ -931,12 +950,12 @@ msn_parse_addressbook(MsnSession *session, xmlnode *node)
 
 	/*Process contact List*/
 	purple_debug_info("msn", "Process contact list...\n");
-	contacts = xmlnode_get_child(result, "contacts");
+	contacts = xmlnode_get_child(result, "Contacts");
 	if (contacts != NULL) {
 		msn_parse_addressbook_contacts(session, contacts);
 	}
 
-	abNode = xmlnode_get_child(result, "ab");
+	abNode = xmlnode_get_child(result, "Ab");
 	if (abNode != NULL) {
 		xmlnode *node2;
 		char *tmp = NULL;
@@ -952,6 +971,11 @@ msn_parse_addressbook(MsnSession *session, xmlnode *node)
 		purple_debug_info("msn", "AB DynamicItemLastChanged :{%s}\n", tmp ? tmp : "(null)");
 		purple_account_set_string(session->account, "DynamicItemLastChanged", tmp);
 		g_free(tmp);
+	}
+
+	circleNode = xmlnode_get_child(result, "CircleResult");
+	if (circleNode != NULL) {
+		msn_parse_addressbook_circles(session, circleNode);
 	}
 
 	return TRUE;
