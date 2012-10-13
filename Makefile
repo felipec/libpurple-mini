@@ -168,6 +168,15 @@ media_headers := media/candidate.h \
 		 media/codec.h \
 		 media/enum-types.h
 
+objects += ciphers/des.o \
+	   ciphers/gchecksum.o \
+	   ciphers/hmac.o \
+	   ciphers/md4.o \
+	   ciphers/md5.o \
+	   ciphers/rc4.o \
+	   ciphers/sha1.o \
+	   ciphers/sha256.o
+
 headers += version.h
 
 ifeq ($(PLATFORM),mingw32)
@@ -210,7 +219,7 @@ plugin.o: | version.h
 
 $(target): $(objects)
 $(target): CFLAGS := $(CFLAGS) $(GOBJECT_CFLAGS) $(LIBXML_CFLAGS) \
-	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"'
+	-D VERSION='"$(version)"' -D DISPLAY_VERSION='"$(version)"' -I .
 $(target): LIBS := $(LIBS) $(GOBJECT_LIBS) $(LIBXML_LIBS) -lm
 $(target): LDFLAGS := $(LDFLAGS) -Wl,-soname,$(target).0 -Wl,--no-undefined
 
