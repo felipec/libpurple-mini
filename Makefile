@@ -1,6 +1,6 @@
 CC := $(CROSS_COMPILE)gcc
 
-PLATFORM := $(shell $(CC) -dumpmachine | cut -f 3 -d -)
+PLATFORM := $(shell $(CC) -dumpmachine | awk -F - '{ print $$NF }')
 SSL := y
 
 GOBJECT_CFLAGS := $(shell pkg-config --cflags gobject-2.0 gmodule-2.0)
