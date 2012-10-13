@@ -296,4 +296,9 @@ clean:
 	$(QUIET_CLEAN)$(RM) $(target) $(plugins)
 	$(QUIET_CLEAN)find -name '*.[od]' | xargs rm -f
 
+dist: base := libpurple-mini-$(version)
+dist:
+	echo $(version) > .version
+	tar -cJf /tmp/$(base).tar.xz --transform='s#^#$(base)/#' -- `git ls-files` .version
+
 -include *.d plugins/ssl/*.d
