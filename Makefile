@@ -244,7 +244,7 @@ version.h: version.h.in
 purple.pc: purple.pc.in
 	sed -e 's#@prefix@#$(prefix)#g' \
 		-e 's#@version@#$(version)#g' \
-		-e 's#@cflags@#-I$${includedir}/lib$(module) -I$${includedir}/lib$(module)/libpurple#g' \
+		-e 's#@cflags@#-I$${includedir}/lib$(module)#g' \
 		-e 's#@module@#$(module)#g' \
 		$< > $@
 
@@ -268,11 +268,11 @@ endif
 	mkdir -p $(D)/$(libdir)/pkgconfig
 	install -m 644 purple.pc $(D)/$(libdir)/pkgconfig/$(module).pc
 	# includes
-	mkdir -p $(D)/$(includedir)/libpurple
-	mkdir -p $(D)/$(includedir)/libpurple/media
-	install -m 644 $(headers) $(D)/$(includedir)/libpurple
-	install -m 644 $(media_headers) $(D)/$(includedir)/libpurple/media
-	install -m 644 purple-client.h $(D)/$(includedir)/libpurple/purple.h
+	mkdir -p $(D)/$(includedir)
+	mkdir -p $(D)/$(includedir)/media
+	install -m 644 $(headers) $(D)/$(includedir)
+	install -m 644 $(media_headers) $(D)/$(includedir)/media
+	install -m 644 purple-client.h $(D)/$(includedir)/purple.h
 
 uninstall:
 ifeq ($(PLATFORM),mingw32)
@@ -281,7 +281,7 @@ endif
 	$(RM) $(D)/$(libdir)/$(target)*
 	$(RM) -r $(D)/$(plugindir)
 	$(RM) $(D)/$(libdir)/pkgconfig/$(module).pc
-	$(RM) -r $(D)/$(includedir)/libpurple
+	$(RM) -r $(D)/$(includedir)
 
 %.o:: %.c
 	$(QUIET_CC)$(CC) $(CFLAGS) -MMD -o $@ -c $<
