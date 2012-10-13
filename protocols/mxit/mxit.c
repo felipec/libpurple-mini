@@ -37,6 +37,7 @@
 #include	"filexfer.h"
 #include	"actions.h"
 #include	"multimx.h"
+#include	"voicevideo.h"
 
 
 #ifdef	MXIT_LINK_CLICK
@@ -91,6 +92,8 @@ static void* mxit_link_click( const char* link64 )
 	if ( !account )
 		goto skip;
 	con = purple_account_get_connection( account );
+	if ( !con )
+		goto skip;
 
 	/* determine if it's a command-response to send */
 	is_command = g_str_has_prefix( parts[4], "::type=reply|" );
@@ -145,7 +148,7 @@ void mxit_register_uri_handler(void)
 
 
 /*------------------------------------------------------------------------
- * Unegister MXit from receiving URI click notifications from the UI
+ * Unregister MXit from receiving URI click notifications from the UI
  */
 static void mxit_unregister_uri_handler()
 {
@@ -203,7 +206,7 @@ static void mxit_cb_chat_created( PurpleConversation* conv, struct MXitSession* 
 	if ( find_active_chat( session->active_chats, who ) )
 		return;
 
-	/* determite if this buddy is a MXit service */
+	/* determine if this buddy is a MXit service */
 	switch ( contact->type ) {
 		case MXIT_TYPE_BOT :
 		case MXIT_TYPE_CHATROOM :
@@ -522,7 +525,7 @@ static void mxit_keepalive( PurpleConnection *gc )
 	if ( session->http )
 		return;
 
-	if ( session->last_tx <= time( NULL ) - MXIT_PING_INTERVAL ) {
+	if ( session->last_tx <= ( mxit_now_milli() - ( MXIT_PING_INTERVAL * 1000 ) ) ) {
 		/*
 		 * this connection has been idle for too long, better ping
 		 * the server before it kills our connection.
@@ -553,16 +556,33 @@ static void mxit_set_buddy_icon( PurpleConnection *gc, PurpleStoredImage *img )
  * Request profile information for another MXit contact.
  *
  *  @param gc		The connection object
- *  @param who		The username of the contact.		
+ *  @param who		The username of the contact.
  */
 static void mxit_get_info( PurpleConnection *gc, const char *who )
 {
+	PurpleBuddy*			buddy;
+	struct contact*			contact;
 	struct MXitSession*		session			= (struct MXitSession*) gc->proto_data;
 	const char*				profilelist[]	= { CP_PROFILE_BIRTHDATE, CP_PROFILE_GENDER, CP_PROFILE_FULLNAME,
-												CP_PROFILE_FIRSTNAME, CP_PROFILE_LASTNAME, CP_PROFILE_REGCOUNTRY };
+												CP_PROFILE_FIRSTNAME, CP_PROFILE_LASTNAME, CP_PROFILE_REGCOUNTRY, CP_PROFILE_LASTSEEN,
+												CP_PROFILE_STATUS, CP_PROFILE_AVATAR, CP_PROFILE_WHEREAMI, CP_PROFILE_ABOUTME };
 
 	purple_debug_info( MXIT_PLUGIN_ID, "mxit_get_info: '%s'\n", who );
 
+	/* find the buddy information for this contact (reference: "libpurple/blist.h") */
+	buddy = purple_find_buddy( session->acc, who );
+	if ( buddy ) {
+		/* user is in our contact-list, so it's not an invite */
+		contact = purple_buddy_get_protocol_data( buddy );
+		if ( !contact )
+			return;
+
+		/* only MXit users have profiles */
+		if ( contact->type != MXIT_TYPE_MXIT ) {
+			mxit_popup( PURPLE_NOTIFY_MSG_WARNING, _( "No profile available" ), _( "This contact does not have a profile." ) );
+			return;
+		}
+	}
 
 	/* send profile request */
 	mxit_send_extprofile_request( session, who, ARRAY_SIZE( profilelist ), profilelist );
@@ -578,15 +598,71 @@ static GHashTable* mxit_get_text_table( PurpleAccount* acc )
 
 	table = g_hash_table_new( g_str_hash, g_str_equal );
 
-	g_hash_table_insert( table, "login_label", (gpointer)_( "Your Mobile Number..." ) );
+	g_hash_table_insert( table, "login_label", (gpointer)_( "Your MXit ID..." ) );
 
 	return table;
+}
+
+
+/*------------------------------------------------------------------------
+ * Re-Invite was selected from the buddy-list menu.
+ *
+ *  @param node		The entry in the buddy list.
+ *  @param ignored	(not used)
+ */
+static void mxit_reinvite( PurpleBlistNode *node, gpointer ignored )
+{
+	PurpleBuddy*		buddy;
+	struct contact*		contact;
+	PurpleConnection*	gc;
+	struct MXitSession*	session;
+
+	buddy = (PurpleBuddy *)node;
+	gc = purple_account_get_connection( purple_buddy_get_account( buddy ) );
+	session = gc->proto_data;
+
+	contact = purple_buddy_get_protocol_data( (PurpleBuddy*) node );
+	if ( !contact )
+		return;
+
+	/* send a new invite */
+	mxit_send_invite( session, contact->username, TRUE, contact->alias, contact->groupname, NULL );
+}
+
+
+/*------------------------------------------------------------------------
+ * Buddy-list menu.
+ *
+ *  @param node		The entry in the buddy list.
+ */
+static GList* mxit_blist_menu( PurpleBlistNode *node )
+{
+	PurpleBuddy*		buddy;
+	struct contact*		contact;
+	GList*				m = NULL;
+	PurpleMenuAction*	act;
+
+	if ( !PURPLE_BLIST_NODE_IS_BUDDY( node ) )
+		return NULL;
+
+	buddy = (PurpleBuddy *) node;
+	contact = purple_buddy_get_protocol_data( buddy );
+	if ( !contact )
+		return NULL;
+
+	if ( ( contact->subtype == MXIT_SUBTYPE_DELETED ) || ( contact->subtype == MXIT_SUBTYPE_REJECTED ) || ( contact->subtype == MXIT_SUBTYPE_NONE ) ) {
+		/* contact is in Deleted, Rejected or None state */
+		act = purple_menu_action_new( _( "Re-Invite" ), PURPLE_CALLBACK( mxit_reinvite ), NULL, NULL );
+		m = g_list_append(m, act);
+	}
+
+	return m;
 }
 
 /*========================================================================================================================*/
 
 static PurplePluginProtocolInfo proto_info = {
-	OPT_PROTO_REGISTER_NOSCREENNAME | OPT_PROTO_UNIQUE_CHATNAME | OPT_PROTO_IM_IMAGE,			/* options */
+	OPT_PROTO_REGISTER_NOSCREENNAME | OPT_PROTO_UNIQUE_CHATNAME | OPT_PROTO_IM_IMAGE | OPT_PROTO_INVITE_MESSAGE,			/* options */
 	NULL,					/* user_splits */
 	NULL,					/* protocol_options */
 	{						/* icon_spec */
@@ -594,7 +670,7 @@ static PurplePluginProtocolInfo proto_info = {
 		32, 32,												/* min width & height */
 		MXIT_AVATAR_SIZE,									/* max width */
 		MXIT_AVATAR_SIZE,									/* max height */
-		100000,												/* max filezize */
+		100000,												/* max filesize */
 		PURPLE_ICON_SCALE_SEND | PURPLE_ICON_SCALE_DISPLAY	/* scaling rules */
 	},
 	mxit_list_icon,			/* list_icon */
@@ -602,7 +678,7 @@ static PurplePluginProtocolInfo proto_info = {
 	mxit_status_text,		/* status_text */
 	mxit_tooltip,			/* tooltip_text */
 	mxit_status_types,		/* status types				[roster.c] */
-	NULL,					/* blist_node_menu */
+	mxit_blist_menu,		/* blist_node_menu */
 	mxit_chat_info,			/* chat_info				[multimx.c] */
 	NULL,					/* chat_info_defaults */
 	mxit_login,				/* login					[login.c] */
@@ -614,7 +690,7 @@ static PurplePluginProtocolInfo proto_info = {
 	mxit_set_status,		/* set_status */
 	NULL,					/* set_idle */
 	NULL,					/* change_passwd */
-	mxit_add_buddy,			/* add_buddy				[roster.c] */
+	NULL,					/* add_buddy				[roster.c] */
 	NULL,					/* add_buddies */
 	mxit_remove_buddy,		/* remove_buddy				[roster.c] */
 	NULL,					/* remove_buddies */
@@ -660,11 +736,13 @@ static PurplePluginProtocolInfo proto_info = {
 	NULL,					/* attention_types */
 	sizeof( PurplePluginProtocolInfo ),		/* struct_size */
 	mxit_get_text_table,	/* get_account_text_table */
-	NULL,					/* initiate_media */
-	NULL,					/* get_media_caps */
+	mxit_media_initiate,	/* initiate_media */
+	mxit_media_caps,		/* get_media_caps */
 	mxit_get_moods,			/* get_moods */
 	NULL,					/* set_public_alias */
-	NULL					/* get_public_alias */
+	NULL,					/* get_public_alias */
+	mxit_add_buddy,			/* add_buddy_with_invite */
+	NULL					/* add_buddies_with_invite */
 };
 
 
@@ -680,7 +758,7 @@ static PurplePluginInfo plugin_info = {
 
 	MXIT_PLUGIN_ID,										/* plugin id (must be unique) */
 	MXIT_PLUGIN_NAME,									/* plugin name (this will be displayed in the UI) */
-	MXIT_PLUGIN_VERSION,								/* version of the plugin */
+	DISPLAY_VERSION,									/* version of the plugin */
 
 	MXIT_PLUGIN_SUMMARY,								/* short summary of the plugin */
 	MXIT_PLUGIN_DESC,									/* description of the plugin (can be long) */

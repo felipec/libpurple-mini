@@ -208,11 +208,11 @@ static gboolean flap_connection_send_queued(gpointer data)
  * @param data The optional bytestream that makes up the data portion
  *        of this SNAC.  For empty SNACs this should be NULL.
  * @param high_priority If TRUE, the SNAC will be queued normally if
- *        needed. If FALSE, it wil be queued separately, to be sent
+ *        needed. If FALSE, it will be queued separately, to be sent
  *        only if all high priority SNACs have been sent.
  */
 void
-flap_connection_send_snac_with_priority(OscarData *od, FlapConnection *conn, guint16 family, const guint16 subtype, guint16 flags, aim_snacid_t snacid, ByteStream *data, gboolean high_priority)
+flap_connection_send_snac_with_priority(OscarData *od, FlapConnection *conn, guint16 family, const guint16 subtype, aim_snacid_t snacid, ByteStream *data, gboolean high_priority)
 {
 	FlapFrame *frame;
 	guint32 length;
@@ -222,7 +222,7 @@ flap_connection_send_snac_with_priority(OscarData *od, FlapConnection *conn, gui
 	length = data != NULL ? data->offset : 0;
 
 	frame = flap_frame_new(od, 0x02, 10 + length);
-	aim_putsnac(&frame->data, family, subtype, flags, snacid);
+	aim_putsnac(&frame->data, family, subtype, snacid);
 
 	if (length > 0)
 	{
@@ -284,9 +284,9 @@ flap_connection_send_snac_with_priority(OscarData *od, FlapConnection *conn, gui
 }
 
 void
-flap_connection_send_snac(OscarData *od, FlapConnection *conn, guint16 family, const guint16 subtype, guint16 flags, aim_snacid_t snacid, ByteStream *data)
+flap_connection_send_snac(OscarData *od, FlapConnection *conn, guint16 family, const guint16 subtype, aim_snacid_t snacid, ByteStream *data)
 {
-	flap_connection_send_snac_with_priority(od, conn, family, subtype, flags, snacid, data, TRUE);
+	flap_connection_send_snac_with_priority(od, conn, family, subtype, snacid, data, TRUE);
 }
 
 /**
@@ -435,11 +435,16 @@ flap_connection_destroy_cb(gpointer data)
 	aim_rxcallback_t userfunc;
 
 	conn = data;
+	/* Explicitly added for debugging #5927.  Don't re-order this, only
+	 * consider removing it.
+	 */
+	purple_debug_info("oscar", "Destroying FLAP connection %p\n", conn);
+
 	od = conn->od;
 	account = purple_connection_get_account(od->gc);
 
-	purple_debug_info("oscar", "Destroying oscar connection of "
-			"type 0x%04hx.  Disconnect reason is %d\n",
+	purple_debug_info("oscar", "Destroying oscar connection (%p) of "
+			"type 0x%04hx.  Disconnect reason is %d\n", conn,
 			conn->type, conn->disconnect_reason);
 
 	od->oscar_connections = g_slist_remove(od->oscar_connections, conn);
@@ -575,7 +580,7 @@ flap_connection_schedule_destroy(FlapConnection *conn, OscarDisconnectReason rea
 		return;
 
 	purple_debug_info("oscar", "Scheduling destruction of FLAP "
-			"connection of type 0x%04hx\n", conn->type);
+			"connection %p of type 0x%04hx\n", conn, conn->type);
 	conn->disconnect_reason = reason;
 	g_free(conn->error_message);
 	conn->error_message = g_strdup(error_message);
@@ -733,7 +738,7 @@ parse_snac(OscarData *od, FlapConnection *conn, FlapFrame *frame)
 	aim_module_t *cur;
 	aim_modsnac_t snac;
 
-	if (byte_stream_empty(&frame->data) < 10)
+	if (byte_stream_bytes_left(&frame->data) < 10)
 		return;
 
 	snac.family = byte_stream_get16(&frame->data);
@@ -800,7 +805,7 @@ parse_flap_ch4(OscarData *od, FlapConnection *conn, FlapFrame *frame)
 	GSList *tlvlist;
 	char *msg = NULL;
 
-	if (byte_stream_empty(&frame->data) == 0) {
+	if (byte_stream_bytes_left(&frame->data) == 0) {
 		/* XXX should do something with this */
 		return;
 	}
@@ -930,18 +935,6 @@ flap_connection_recv(FlapConnection *conn)
 						OSCAR_DISCONNECT_INVALID_DATA, NULL);
 				break;
 			}
-
-			/* Verify the sequence number sent by the server. */
-#if 0
-			/* TODO: Need to initialize conn->seqnum_in somewhere before we can use this. */
-			if (aimutil_get16(&conn->header[1]) != conn->seqnum_in++)
-			{
-				/* Received an out-of-order FLAP! */
-				flap_connection_schedule_destroy(conn,
-						OSCAR_DISCONNECT_INVALID_DATA, NULL);
-				break;
-			}
-#endif
 
 			/* Initialize a new temporary FlapFrame for incoming data */
 			conn->buffer_incoming.channel = aimutil_get8(&conn->header[1]);
@@ -1074,8 +1067,8 @@ flap_connection_send_byte_stream(ByteStream *bs, FlapConnection *conn, size_t co
 		return;
 
 	/* Make sure we don't send past the end of the bs */
-	if (count > byte_stream_empty(bs))
-		count = byte_stream_empty(bs); /* truncate to remaining space */
+	if (count > byte_stream_bytes_left(bs))
+		count = byte_stream_bytes_left(bs); /* truncate to remaining space */
 
 	if (count == 0)
 		return;

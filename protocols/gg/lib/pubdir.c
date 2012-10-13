@@ -26,9 +26,6 @@
  * \brief Obsługa katalogu publicznego
  */
 
-#include "libgadu.h"
-#include "libgadu-config.h"
-
 #include <ctype.h>
 #include <errno.h>
 #include <stdarg.h>
@@ -36,6 +33,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+#include "libgadu.h"
+#include "libgadu-config.h"
 
 /**
  * Rejestruje nowego użytkownika.

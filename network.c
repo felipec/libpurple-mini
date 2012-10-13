@@ -71,6 +71,10 @@
 #include <dbus/dbus-glib.h>
 #include <NetworkManager.h>
 
+#if !defined(NM_CHECK_VERSION)
+#define NM_CHECK_VERSION(x,y,z) 0
+#endif
+
 static DBusGConnection *nm_conn = NULL;
 static DBusGProxy *nm_proxy = NULL;
 static DBusGProxy *dbus_proxy = NULL;
@@ -98,6 +102,7 @@ struct _PurpleNetworkListenData {
 	PurpleNetworkListenCallback cb;
 	gpointer cb_data;
 	UPnPMappingAddRemove *mapping_data;
+	int timer;
 };
 
 #ifdef HAVE_NETWORKMANAGER
@@ -270,7 +275,7 @@ purple_network_get_all_local_system_ips(void)
 
 			inet_ntop(AF_INET, &sinptr->sin_addr, dst,
 				sizeof(dst));
-			purple_debug_info("network", 
+			purple_debug_info("network",
 				"found local i/f with address %s on IPv4\n", dst);
 			if (!purple_strequal(dst, "127.0.0.1")) {
 				result = g_list_append(result, g_strdup(dst));
@@ -349,17 +354,15 @@ purple_network_set_upnp_port_mapping_cb(gboolean success, gpointer data)
 
 	if (success) {
 		/* add port mapping to hash table */
-		gint *key = g_new(gint, 1);
-		gint *value = g_new(gint, 1);
-		*key = purple_network_get_port_from_fd(listen_data->listenfd);
-		*value = listen_data->socket_type;
-		g_hash_table_insert(upnp_port_mappings, key, value);
+		gint key = purple_network_get_port_from_fd(listen_data->listenfd);
+		gint value = listen_data->socket_type;
+		g_hash_table_insert(upnp_port_mappings, GINT_TO_POINTER(key), GINT_TO_POINTER(value));
 	}
 
 	if (listen_data->cb)
 		listen_data->cb(listen_data->listenfd, listen_data->cb_data);
 
-	/* Clear the UPnP mapping data, since it's complete and purple_netweork_listen_cancel() will try to cancel
+	/* Clear the UPnP mapping data, since it's complete and purple_network_listen_cancel() will try to cancel
 	 * it otherwise. */
 	listen_data->mapping_data = NULL;
 	purple_network_listen_cancel(listen_data);
@@ -369,15 +372,16 @@ static gboolean
 purple_network_finish_pmp_map_cb(gpointer data)
 {
 	PurpleNetworkListenData *listen_data;
-	gint *key = g_new(gint, 1);
-	gint *value = g_new(gint, 1);
+	gint key;
+	gint value;
 
 	listen_data = data;
+	listen_data->timer = 0;
 
 	/* add port mapping to hash table */
-	*key = purple_network_get_port_from_fd(listen_data->listenfd);
-	*value = listen_data->socket_type;
-	g_hash_table_insert(nat_pmp_port_mappings, key, value);
+	key = purple_network_get_port_from_fd(listen_data->listenfd);
+	value = listen_data->socket_type;
+	g_hash_table_insert(nat_pmp_port_mappings, GINT_TO_POINTER(key), GINT_TO_POINTER(value));
 
 	if (listen_data->cb)
 		listen_data->cb(listen_data->listenfd, listen_data->cb_data);
@@ -504,7 +508,7 @@ purple_network_do_listen(unsigned short port, int socket_family, int socket_type
 	{
 		purple_debug_info("network", "Skipping external port mapping.\n");
 		/* The pmp_map_cb does what we want to do */
-		purple_timeout_add(0, purple_network_finish_pmp_map_cb, listen_data);
+		listen_data->timer = purple_timeout_add(0, purple_network_finish_pmp_map_cb, listen_data);
 	}
 	/* Attempt a NAT-PMP Mapping, which will return immediately */
 	else if (purple_pmp_create_map(((socket_type == SOCK_STREAM) ? PURPLE_PMP_TYPE_TCP : PURPLE_PMP_TYPE_UDP),
@@ -512,7 +516,7 @@ purple_network_do_listen(unsigned short port, int socket_family, int socket_type
 	{
 		purple_debug_info("network", "Created NAT-PMP mapping on port %i\n", actual_port);
 		/* We want to return listen_data now, and on the next run loop trigger the cb and destroy listen_data */
-		purple_timeout_add(0, purple_network_finish_pmp_map_cb, listen_data);
+		listen_data->timer = purple_timeout_add(0, purple_network_finish_pmp_map_cb, listen_data);
 	}
 	else
 	{
@@ -583,6 +587,9 @@ void purple_network_listen_cancel(PurpleNetworkListenData *listen_data)
 {
 	if (listen_data->mapping_data != NULL)
 		purple_upnp_cancel_port_mapping(listen_data->mapping_data);
+
+	if (listen_data->timer > 0)
+		purple_timeout_remove(listen_data->timer);
 
 	g_free(listen_data);
 }
@@ -688,7 +695,7 @@ static gboolean wpurple_network_change_thread_cb(gpointer data)
 
 static gboolean _print_debug_msg(gpointer data) {
 	gchar *msg = data;
-	purple_debug_warning("network", msg);
+	purple_debug_warning("network", "%s", msg);
 	g_free(msg);
 	return FALSE;
 }
@@ -860,7 +867,13 @@ nm_update_state(NMState state)
 
 	switch(state)
 	{
+#if NM_CHECK_VERSION(0,8,992)
+		case NM_STATE_CONNECTED_LOCAL:
+		case NM_STATE_CONNECTED_SITE:
+		case NM_STATE_CONNECTED_GLOBAL:
+#else
 		case NM_STATE_CONNECTED:
+#endif
 			/* Call res_init in case DNS servers have changed */
 			res_init();
 			/* update STUN IP in case we it changed (theoretically we could
@@ -870,13 +883,16 @@ nm_update_state(NMState state)
 				purple_prefs_get_string("/purple/network/stun_server"));
 			purple_network_set_turn_server(
 				purple_prefs_get_string("/purple/network/turn_server"));
-			
+
 			if (ui_ops != NULL && ui_ops->network_connected != NULL)
 				ui_ops->network_connected();
 			break;
 		case NM_STATE_ASLEEP:
 		case NM_STATE_CONNECTING:
 		case NM_STATE_DISCONNECTED:
+#if NM_CHECK_VERSION(0,8,992)
+		case NM_STATE_DISCONNECTING:
+#endif
 			if (prev != NM_STATE_CONNECTED && prev != NM_STATE_UNKNOWN)
 				break;
 			if (ui_ops != NULL && ui_ops->network_disconnected != NULL)
@@ -933,10 +949,10 @@ nm_dbus_name_owner_changed_cb(DBusGProxy *proxy, char *service, char *old_owner,
 #endif
 
 static void
-purple_network_ip_lookup_cb(GSList *hosts, gpointer data, 
+purple_network_ip_lookup_cb(GSList *hosts, gpointer data,
 	const char *error_message)
 {
-	const gchar **ip = (const gchar **) data; 
+	const gchar **ip = (const gchar **) data;
 
 	if (error_message) {
 		purple_debug_error("network", "lookup of IP address failed: %s\n",
@@ -946,14 +962,14 @@ purple_network_ip_lookup_cb(GSList *hosts, gpointer data,
 	}
 
 	if (hosts && g_slist_next(hosts)) {
-		struct sockaddr *addr = g_slist_next(hosts)->data; 
+		struct sockaddr *addr = g_slist_next(hosts)->data;
 		char dst[INET6_ADDRSTRLEN];
-		
+
 		if (addr->sa_family == AF_INET6) {
-			inet_ntop(addr->sa_family, &((struct sockaddr_in6 *) addr)->sin6_addr, 
+			inet_ntop(addr->sa_family, &((struct sockaddr_in6 *) addr)->sin6_addr,
 				dst, sizeof(dst));
 		} else {
-			inet_ntop(addr->sa_family, &((struct sockaddr_in *) addr)->sin_addr, 
+			inet_ntop(addr->sa_family, &((struct sockaddr_in *) addr)->sin_addr,
 				dst, sizeof(dst));
 		}
 
@@ -975,10 +991,10 @@ purple_network_set_stun_server(const gchar *stun_server)
 	if (stun_server && stun_server[0] != '\0') {
 		if (purple_network_is_available()) {
 			purple_debug_info("network", "running DNS query for STUN server\n");
-			purple_dnsquery_a(stun_server, 3478, purple_network_ip_lookup_cb,
+			purple_dnsquery_a_account(NULL, stun_server, 3478, purple_network_ip_lookup_cb,
 				&stun_ip);
 		} else {
-			purple_debug_info("network", 
+			purple_debug_info("network",
 				"network is unavailable, don't try to update STUN IP");
 		}
 	} else if (stun_ip) {
@@ -993,11 +1009,11 @@ purple_network_set_turn_server(const gchar *turn_server)
 	if (turn_server && turn_server[0] != '\0') {
 		if (purple_network_is_available()) {
 			purple_debug_info("network", "running DNS query for TURN server\n");
-			purple_dnsquery_a(turn_server, 
-				purple_prefs_get_int("/purple/network/turn_port"), 
+			purple_dnsquery_a_account(NULL, turn_server,
+				purple_prefs_get_int("/purple/network/turn_port"),
 				purple_network_ip_lookup_cb, &turn_ip);
 		} else {
-			purple_debug_info("network", 
+			purple_debug_info("network",
 				"network is unavailable, don't try to update TURN IP");
 		}
 	} else if (turn_ip) {
@@ -1040,44 +1056,42 @@ static void
 purple_network_upnp_mapping_remove(gpointer key, gpointer value,
 	gpointer user_data)
 {
-	gint port = (gint) *((gint *) key);
-	gint protocol = (gint) *((gint *) value);
+	gint port = GPOINTER_TO_INT(key);
+	gint protocol = GPOINTER_TO_INT(value);
 	purple_debug_info("network", "removing UPnP port mapping for port %d\n",
 		port);
-	purple_upnp_remove_port_mapping(port, 
-		protocol == SOCK_STREAM ? "TCP" : "UDP", 
+	purple_upnp_remove_port_mapping(port,
+		protocol == SOCK_STREAM ? "TCP" : "UDP",
 		purple_network_upnp_mapping_remove_cb, NULL);
-	g_hash_table_remove(upnp_port_mappings, key);
+	g_hash_table_remove(upnp_port_mappings, GINT_TO_POINTER(port));
 }
 
 static void
 purple_network_nat_pmp_mapping_remove(gpointer key, gpointer value,
 	gpointer user_data)
 {
-	gint port = (gint) *((gint *) key);
-	gint protocol = (gint) *((gint *) value);
+	gint port = GPOINTER_TO_INT(key);
+	gint protocol = GPOINTER_TO_INT(value);
 	purple_debug_info("network", "removing NAT-PMP port mapping for port %d\n",
 		port);
 	purple_pmp_destroy_map(
-		protocol == SOCK_STREAM ? PURPLE_PMP_TYPE_TCP : PURPLE_PMP_TYPE_UDP, 
+		protocol == SOCK_STREAM ? PURPLE_PMP_TYPE_TCP : PURPLE_PMP_TYPE_UDP,
 		port);
-	g_hash_table_remove(nat_pmp_port_mappings, key);
+	g_hash_table_remove(nat_pmp_port_mappings, GINT_TO_POINTER(port));
 }
 
 void
 purple_network_remove_port_mapping(gint fd)
 {
 	int port = purple_network_get_port_from_fd(fd);
-	gint *protocol = g_hash_table_lookup(upnp_port_mappings, &port);
+	gint protocol = GPOINTER_TO_INT(g_hash_table_lookup(upnp_port_mappings, GINT_TO_POINTER(port)));
 
 	if (protocol) {
-		purple_network_upnp_mapping_remove(&port, protocol, NULL);
-		g_hash_table_remove(upnp_port_mappings, protocol);
+		purple_network_upnp_mapping_remove(GINT_TO_POINTER(port), GINT_TO_POINTER(protocol), NULL);
 	} else {
-		protocol = g_hash_table_lookup(nat_pmp_port_mappings, &port);
+		protocol = GPOINTER_TO_INT(g_hash_table_lookup(nat_pmp_port_mappings, GINT_TO_POINTER(port)));
 		if (protocol) {
-			purple_network_nat_pmp_mapping_remove(&port, protocol, NULL);
-			g_hash_table_remove(nat_pmp_port_mappings, protocol);
+			purple_network_nat_pmp_mapping_remove(GINT_TO_POINTER(port), GINT_TO_POINTER(protocol), NULL);
 		}
 	}
 }
@@ -1135,6 +1149,7 @@ purple_network_init(void)
 	purple_prefs_add_string("/purple/network/stun_server", "");
 	purple_prefs_add_string("/purple/network/turn_server", "");
 	purple_prefs_add_int   ("/purple/network/turn_port", 3478);
+	purple_prefs_add_int	 ("/purple/network/turn_port_tcp", 3478);
 	purple_prefs_add_string("/purple/network/turn_username", "");
 	purple_prefs_add_string("/purple/network/turn_password", "");
 	purple_prefs_add_bool  ("/purple/network/auto_ip", TRUE);
@@ -1175,16 +1190,14 @@ purple_network_init(void)
 
 	purple_pmp_init();
 	purple_upnp_init();
-	
+
 	purple_network_set_stun_server(
 		purple_prefs_get_string("/purple/network/stun_server"));
 	purple_network_set_turn_server(
 		purple_prefs_get_string("/purple/network/turn_server"));
 
-	upnp_port_mappings = 
-		g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
-	nat_pmp_port_mappings =
-		g_hash_table_new_full(g_int_hash, g_int_equal, g_free, g_free);
+	upnp_port_mappings = g_hash_table_new(g_direct_hash, g_direct_equal);
+	nat_pmp_port_mappings = g_hash_table_new(g_direct_hash, g_direct_equal);
 }
 
 
@@ -1228,13 +1241,13 @@ purple_network_uninit(void)
 #endif
 	purple_signal_unregister(purple_network_get_handle(),
 							 "network-configuration-changed");
-	
+
 	if (stun_ip)
 		g_free(stun_ip);
 
 	g_hash_table_destroy(upnp_port_mappings);
 	g_hash_table_destroy(nat_pmp_port_mappings);
 
-	/* TODO: clean up remaining port mappings, note calling 
+	/* TODO: clean up remaining port mappings, note calling
 	 purple_upnp_remove_port_mapping from here doesn't quite work... */
 }

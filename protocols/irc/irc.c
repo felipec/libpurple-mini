@@ -39,7 +39,9 @@
 
 #define PING_TIMEOUT 60
 
-static void irc_buddy_append(char *name, struct irc_buddy *ib, GString *string);
+static void irc_ison_buddy_init(char *name, struct irc_buddy *ib, GList **list);
+
+static void irc_who_channel(PurpleConversation *conv, struct irc_conn *irc);
 
 static const char *irc_blist_icon(PurpleAccount *a, PurpleBuddy *b);
 static GList *irc_status_types(PurpleAccount *account);
@@ -186,43 +188,82 @@ int irc_send(struct irc_conn *irc, const char *buf)
 /* XXX I don't like messing directly with these buddies */
 gboolean irc_blist_timeout(struct irc_conn *irc)
 {
-	GString *string;
-	char *list, *buf;
-
-	if (irc->ison_outstanding)
-		return TRUE;
-
-	string = g_string_sized_new(512);
-
-	g_hash_table_foreach(irc->buddies, (GHFunc)irc_buddy_append, (gpointer)string);
-
-	list = g_string_free(string, FALSE);
-	if (!list || !strlen(list)) {
-		g_free(list);
+	if (irc->ison_outstanding) {
 		return TRUE;
 	}
 
-	buf = irc_format(irc, "vn", "ISON", list);
-	g_free(list);
-	irc_send(irc, buf);
-	g_free(buf);
+	g_hash_table_foreach(irc->buddies, (GHFunc)irc_ison_buddy_init,
+	                     (gpointer *)&irc->buddies_outstanding);
 
-	irc->ison_outstanding = TRUE;
+	irc_buddy_query(irc);
 
 	return TRUE;
 }
 
-static void irc_buddy_append(char *name, struct irc_buddy *ib, GString *string)
+void irc_buddy_query(struct irc_conn *irc)
 {
-	ib->flag = FALSE;
-	g_string_append_printf(string, "%s ", name);
+	GList *lp;
+	GString *string;
+	struct irc_buddy *ib;
+	char *buf;
+
+	string = g_string_sized_new(512);
+
+	while ((lp = g_list_first(irc->buddies_outstanding))) {
+		ib = (struct irc_buddy *)lp->data;
+		if (string->len + strlen(ib->name) + 1 > 450)
+			break;
+		g_string_append_printf(string, "%s ", ib->name);
+		ib->new_online_status = FALSE;
+		irc->buddies_outstanding = g_list_remove_link(irc->buddies_outstanding, lp);
+	}
+
+	if (string->len) {
+		buf = irc_format(irc, "vn", "ISON", string->str);
+		irc_send(irc, buf);
+		g_free(buf);
+		irc->ison_outstanding = TRUE;
+	} else
+		irc->ison_outstanding = FALSE;
+
+	g_string_free(string, TRUE);
+}
+
+static void irc_ison_buddy_init(char *name, struct irc_buddy *ib, GList **list)
+{
+	*list = g_list_append(*list, ib);
+}
+
+
+gboolean irc_who_channel_timeout(struct irc_conn *irc)
+{
+	// WHO all of our channels.
+	g_list_foreach(purple_get_conversations(), (GFunc)irc_who_channel, (gpointer)irc);
+	
+	return TRUE;
+}
+
+static void irc_who_channel(PurpleConversation *conv, struct irc_conn *irc)
+{
+	if (purple_conversation_get_account(conv) == irc->account && purple_conversation_get_type(conv) == PURPLE_CONV_TYPE_CHAT) {
+		char *buf = irc_format(irc, "vc", "WHO", purple_conversation_get_name(conv));
+		
+		purple_debug(PURPLE_DEBUG_INFO, "irc", "Performing periodic who on %s", purple_conversation_get_name(conv));
+		irc_send(irc, buf);
+		g_free(buf);
+	}
 }
 
 static void irc_ison_one(struct irc_conn *irc, struct irc_buddy *ib)
 {
 	char *buf;
 
-	ib->flag = FALSE;
+	if (irc->buddies_outstanding != NULL) {
+		irc->buddies_outstanding = g_list_append(irc->buddies_outstanding, ib);
+		return;
+	}
+
+	ib->new_online_status = FALSE;
 	buf = irc_format(irc, "vn", "ISON", ib->name);
 	irc_send(irc, buf);
 	g_free(buf);
@@ -362,8 +403,7 @@ static void irc_login(PurpleAccount *account)
 
 static gboolean do_login(PurpleConnection *gc) {
 	char *buf, *tmp = NULL;
-	char *hostname, *server;
-	const char *hosttmp;
+	char *server;
 	const char *username, *realname;
 	struct irc_conn *irc = gc->proto_data;
 	const char *pass = purple_connection_get_password(gc);
@@ -391,17 +431,6 @@ static gboolean do_login(PurpleConnection *gc) {
 		}
 	}
 
-	hosttmp = purple_get_host_name();
-	if (*hosttmp == ':') {
-		/* This is either an IPv6 address, or something which
-		 * doesn't belong here.  Either way, we need to escape
-		 * it. */
-		hostname = g_strdup_printf("0%s", hosttmp);
-	} else {
-		/* Ugly, I know. */
-		hostname = g_strdup(hosttmp);
-	}
-
 	if (*irc->server == ':') {
 		/* Same as hostname, above. */
 		server = g_strdup_printf("0%s", irc->server);
@@ -409,10 +438,9 @@ static gboolean do_login(PurpleConnection *gc) {
 		server = g_strdup(irc->server);
 	}
 
-	buf = irc_format(irc, "vvvv:", "USER", tmp ? tmp : username, hostname, server,
+	buf = irc_format(irc, "vvvv:", "USER", tmp ? tmp : username, "*", server,
 	                 strlen(realname) ? realname : IRC_DEFAULT_ALIAS);
 	g_free(tmp);
-	g_free(hostname);
 	g_free(server);
 	if (irc_send(irc, buf) < 0) {
 		g_free(buf);
@@ -498,6 +526,8 @@ static void irc_close(PurpleConnection *gc)
 	}
 	if (irc->timer)
 		purple_timeout_remove(irc->timer);
+	if (irc->who_channel_timer)
+		purple_timeout_remove(irc->who_channel_timer);
 	g_hash_table_destroy(irc->cmds);
 	g_hash_table_destroy(irc->msgs);
 	g_hash_table_destroy(irc->buddies);
@@ -947,7 +977,9 @@ static PurplePluginProtocolInfo prpl_info =
 	NULL,					 /* get_media_caps */
 	NULL,					 /* get_moods */
 	NULL,					 /* set_public_alias */
-	NULL					 /* get_public_alias */
+	NULL,					 /* get_public_alias */
+	NULL,					 /* add_buddy_with_invite */
+	NULL					 /* add_buddies_with_invite */
 };
 
 static gboolean load_plugin (PurplePlugin *plugin) {

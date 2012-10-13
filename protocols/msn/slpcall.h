@@ -34,8 +34,6 @@ typedef enum
 
 #include "internal.h"
 
-#include "ft.h"
-
 #include "slplink.h"
 
 /* The official client seems to timeout slp calls after 5 minutes */
@@ -67,7 +65,7 @@ struct _MsnSlpCall
 	gboolean wait_for_socket;
 
 	void (*progress_cb)(MsnSlpCall *slpcall,
-						gsize total_length, gsize len, gsize offset);
+						gsize total_length, gsize len);
 	void (*session_init_cb)(MsnSlpCall *slpcall);
 
 	/* Can be checksum, or smile */
@@ -94,7 +92,7 @@ void msn_slpcall_init(MsnSlpCall *slpcall, MsnSlpCallType type);
 void msn_slpcall_session_init(MsnSlpCall *slpcall);
 void msn_slpcall_destroy(MsnSlpCall *slpcall);
 void msn_slpcall_invite(MsnSlpCall *slpcall, const char *euf_guid,
-						 int app_id, const char *context);
+						 MsnP2PAppId app_id, const char *context);
 void msn_slpcall_close(MsnSlpCall *slpcall);
 
 #endif /* MSN_SLPCALL_H */

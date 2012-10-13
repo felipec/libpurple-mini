@@ -21,30 +21,21 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02111-1301  USA
  */
+
+#include "internal.h"
+#include "cipher.h"
+#include "debug.h"
+
 #include "msn.h"
+#include "msnutils.h"
 #include "directconn.h"
 
 #include "slp.h"
 #include "slpmsg.h"
+#include "p2p.h"
 
-#pragma pack(push,1)
-typedef struct {
-	guint32 session_id;
-	guint32 seq_id;
-	guint64 offset;
-	guint64 total_size;
-	guint32 length;
-	guint32 flags;
-	guint32 ack_id;
-	guint32 ack_uid;
-	guint64 ack_size;
-/*	guint8  body[1]; */
-} MsnDcContext;
-#pragma pack(pop)
-
-#define DC_PACKET_HEADER_SIZE sizeof(MsnDcContext)
 #define DC_MAX_BODY_SIZE      8*1024
-#define DC_MAX_PACKET_SIZE    (DC_PACKET_HEADER_SIZE + DC_MAX_BODY_SIZE)
+#define DC_MAX_PACKET_SIZE    (P2P_PACKET_HEADER_SIZE + DC_MAX_BODY_SIZE)
 
 static void
 msn_dc_calculate_nonce_hash(MsnDirectConnNonceType type,
@@ -60,6 +51,9 @@ msn_dc_calculate_nonce_hash(MsnDirectConnNonceType type,
 		purple_cipher_context_destroy(context);
 	} else if (type == DC_NONCE_PLAIN) {
 		memcpy(digest, nonce, 16);
+	} else {
+		nonce_hash[0] = '\0';
+		g_return_if_reached();
 	}
 
 	g_sprintf(nonce_hash,
@@ -121,8 +115,8 @@ msn_dc_destroy_packet(MsnDirectConnPacket *p)
 {
 	g_free(p->data);
 
-	if (p->msg)
-		msn_message_unref(p->msg);
+	if (p->part)
+		msn_slpmsgpart_unref(p->part);
 
 	g_free(p);
 }
@@ -191,7 +185,7 @@ msn_dc_destroy(MsnDirectConn *dc)
 	if (slplink) {
 		slplink->dc = NULL;
 		if (slplink->swboard == NULL)
-			msn_slplink_destroy(slplink);
+			msn_slplink_unref(slplink);
 	}
 
 	g_free(dc->msg_body);
@@ -353,58 +347,13 @@ msn_dc_fallback_to_sb(MsnDirectConn *dc)
 		if (queue) {
 			while (!g_queue_is_empty(queue)) {
 				MsnDirectConnPacket *p = g_queue_pop_head(queue);
-				msn_slplink_send_msg(slplink, p->msg);
+				msn_slplink_send_msgpart(slplink, (MsnSlpMessage*)p->part->ack_data);
 				msn_dc_destroy_packet(p);
 			}
 			g_queue_free(queue);
 		}
 	}
 	msn_slplink_unref(slplink);
-}
-
-static void
-msn_dc_parse_binary_header(MsnDirectConn *dc)
-{
-	MsnSlpHeader *h;
-	MsnDcContext *context;
-
-	g_return_if_fail(dc != NULL);
-
-	h = &dc->header;
-	/* Skip packet size */
-	context = (MsnDcContext *)(dc->in_buffer + 4);
-
-	h->session_id = GUINT32_FROM_LE(context->session_id);
-	h->id = GUINT32_FROM_LE(context->seq_id);
-	h->offset = GUINT64_FROM_LE(context->offset);
-	h->total_size = GUINT64_FROM_LE(context->total_size);
-	h->length = GUINT32_FROM_LE(context->length);
-	h->flags = GUINT32_FROM_LE(context->flags);
-	h->ack_id = GUINT32_FROM_LE(context->ack_id);
-	h->ack_sub_id = GUINT32_FROM_LE(context->ack_uid);
-	h->ack_size = GUINT64_FROM_LE(context->ack_size);
-}
-
-static const gchar *
-msn_dc_serialize_binary_header(MsnDirectConn *dc) {
-	MsnSlpHeader *h;
-	static MsnDcContext bin_header;
-
-	g_return_val_if_fail(dc != NULL, NULL);
-
-	h = &dc->header;
-
-	bin_header.session_id = GUINT32_TO_LE(h->session_id);
-	bin_header.seq_id = GUINT32_TO_LE(h->id);
-	bin_header.offset = GUINT64_TO_LE(h->offset);
-	bin_header.total_size = GUINT64_TO_LE(h->total_size);
-	bin_header.length = GUINT32_TO_LE(h->length);
-	bin_header.flags = GUINT32_TO_LE(h->flags);
-	bin_header.ack_id = GUINT32_TO_LE(h->ack_id);
-	bin_header.ack_uid = GUINT32_TO_LE(h->ack_sub_id);
-	bin_header.ack_size = GUINT64_TO_LE(h->ack_size);
-
-	return (const gchar *)&bin_header;
 }
 
 static void
@@ -497,47 +446,43 @@ msn_dc_send_foo(MsnDirectConn *dc)
 	msn_dc_enqueue_packet(dc, p);
 }
 
-static void
-msn_dc_send_handshake_with_nonce(MsnDirectConn *dc, MsnDirectConnPacket *p)
-{
-	const gchar *h;
-
-	h = msn_dc_serialize_binary_header(dc);
-	memcpy(p->data, h, DC_PACKET_HEADER_SIZE);
-
-	memcpy(p->data + offsetof(MsnDcContext, ack_id), dc->nonce, 16);
-
-	msn_dc_enqueue_packet(dc, p);
-}
+#if 0 /* We don't actually need this */
+typedef struct {
+	guint32 null;
+	guint32 id;
+	guint32 null[5];
+	guint32 flags;
+	guint8  nonce[16];
+} MsnDirectConnNoncePacket;
+#endif
+#define DC_NONCE_PACKET_SIZE (8 * 4 + 16)
+#define DC_NONCE_PACKET_NONCE (8 * 4)
 
 static void
 msn_dc_send_handshake(MsnDirectConn *dc)
 {
 	MsnDirectConnPacket *p;
+	gchar *h;
 
-	p = msn_dc_new_packet(DC_PACKET_HEADER_SIZE);
+	p = msn_dc_new_packet(DC_NONCE_PACKET_SIZE);
+	h = (gchar *)p->data;
 
-	dc->header.session_id = 0;
-	dc->header.id = dc->slpcall->slplink->slp_seq_id++;
-	dc->header.offset = 0;
-	dc->header.total_size = 0;
-	dc->header.length = 0;
-	dc->header.flags = 0x100;
+	msn_push32le(h, 0); /* NUL */
 
-	msn_dc_send_handshake_with_nonce(dc, p);
-}
+	msn_push32le(h, dc->slpcall->slplink->slp_seq_id++);
 
-static void
-msn_dc_send_handshake_reply(MsnDirectConn *dc)
-{
-	MsnDirectConnPacket *p;
+	/* More NUL stuff */
+	msn_push64le(h, 0);
+	msn_push64le(h, 0);
+	msn_push32le(h, 0);
 
-	p = msn_dc_new_packet(DC_PACKET_HEADER_SIZE);
+	/* Flags */
+	msn_push32le(h, P2P_DC_HANDSHAKE);
 
-	dc->header.id = dc->slpcall->slplink->slp_seq_id++;
-	dc->header.length = 0;
+	/* The real Nonce, yay! */
+	memcpy(h, dc->nonce, 16);
 
-	msn_dc_send_handshake_with_nonce(dc, p);
+	msn_dc_enqueue_packet(dc, p);
 }
 
 static gboolean
@@ -546,10 +491,10 @@ msn_dc_verify_handshake(MsnDirectConn *dc, guint32 packet_length)
 	guchar nonce[16];
 	gchar  nonce_hash[37];
 
-	if (packet_length != DC_PACKET_HEADER_SIZE)
+	if (packet_length != DC_NONCE_PACKET_SIZE)
 		return FALSE;
 
-	memcpy(nonce, dc->in_buffer + 4 + offsetof(MsnDcContext, ack_id), 16);
+	memcpy(nonce, dc->in_buffer + 4 + DC_NONCE_PACKET_NONCE, 16);
 
 	if (dc->nonce_type == DC_NONCE_PLAIN) {
 		if (memcmp(dc->nonce, nonce, 16) == 0) {
@@ -589,24 +534,22 @@ msn_dc_verify_handshake(MsnDirectConn *dc, guint32 packet_length)
 static void
 msn_dc_send_packet_cb(MsnDirectConnPacket *p)
 {
-	if (p->msg != NULL && p->msg->ack_cb != NULL)
-		p->msg->ack_cb(p->msg, p->msg->ack_data);
+	if (p->part != NULL && p->part->ack_cb != NULL)
+		p->part->ack_cb(p->part, p->part->ack_data);
 }
 
 void
-msn_dc_enqueue_msg(MsnDirectConn *dc, MsnMessage *msg)
+msn_dc_enqueue_part(MsnDirectConn *dc, MsnSlpMessagePart *part)
 {
 	MsnDirectConnPacket *p;
-	guint32 length;
+	size_t length;
 
-	length = msg->body_len + DC_PACKET_HEADER_SIZE;
-	p = msn_dc_new_packet(length);
-
-	memcpy(p->data, &msg->msnslp_header, DC_PACKET_HEADER_SIZE);
-	memcpy(p->data + DC_PACKET_HEADER_SIZE, msg->body, msg->body_len);
+	p = msn_dc_new_packet(0);
+	p->data = (guchar *)msn_slpmsgpart_serialize(part, &length);
+	p->length = length - P2P_PACKET_FOOTER_SIZE; /* DC doesn't need footer? */
 
 	p->sent_cb = msn_dc_send_packet_cb;
-	p->msg = msn_message_ref(msg);
+	p->part = msn_slpmsgpart_ref(part);
 
 	msn_dc_enqueue_packet(dc, p);
 }
@@ -614,6 +557,8 @@ msn_dc_enqueue_msg(MsnDirectConn *dc, MsnMessage *msg)
 static int
 msn_dc_process_packet(MsnDirectConn *dc, guint32 packet_length)
 {
+	MsnSlpMessagePart *part;
+
 	g_return_val_if_fail(dc != NULL, DC_PROCESS_ERROR);
 
 	switch (dc->state) {
@@ -632,7 +577,7 @@ msn_dc_process_packet(MsnDirectConn *dc, guint32 packet_length)
 		if (!msn_dc_verify_handshake(dc, packet_length))
 			return DC_PROCESS_FALLBACK;
 
-		msn_dc_send_handshake_reply(dc);
+		msn_dc_send_handshake(dc);
 		dc->state = DC_STATE_ESTABLISHED;
 
 		msn_slpcall_session_init(dc->slpcall);
@@ -650,12 +595,15 @@ msn_dc_process_packet(MsnDirectConn *dc, guint32 packet_length)
 		break;
 
 	case DC_STATE_ESTABLISHED:
-		msn_slplink_process_msg(
-			dc->slplink,
-			&dc->header,
-			dc->in_buffer + 4 + DC_PACKET_HEADER_SIZE,
-			dc->header.length
-		);
+		if (packet_length) {
+			MsnP2PVersion p2p;
+			p2p = msn_slplink_get_p2p_version(dc->slplink);
+			part = msn_slpmsgpart_new_from_data(p2p, dc->in_buffer + 4, packet_length);
+			if (part) {
+				msn_slplink_process_msg(dc->slplink, part);
+				msn_slpmsgpart_unref(part);
+			}
+		}
 
 		/*
 		if (dc->num_calls == 0) {
@@ -725,10 +673,6 @@ msn_dc_recv_cb(gpointer data, gint fd, PurpleInputCondition cond)
 		/* Wait for the whole packet to arrive */
 		if (dc->in_pos < 4 + packet_length)
 			return;
-
-		if (dc->state != DC_STATE_FOO) {
-			msn_dc_parse_binary_header(dc);
-		}
 
 		switch (msn_dc_process_packet(dc, packet_length)) {
 		case DC_PROCESS_CLOSE:
@@ -811,14 +755,11 @@ msn_dc_connected_to_peer_cb(gpointer data, gint fd, const gchar *error_msg)
 static gboolean
 msn_dc_incoming_connection_timeout_cb(gpointer data) {
 	MsnDirectConn *dc = data;
-	MsnSlpCall *slpcall;
 
 	if (purple_debug_is_verbose())
 		purple_debug_info("msn", "msn_dc_incoming_connection_timeout_cb %p\n", dc);
 
 	g_return_val_if_fail(dc != NULL, FALSE);
-
-	slpcall = dc->slpcall;
 
 	if (dc->listen_data != NULL) {
 		purple_network_listen_cancel(dc->listen_data);

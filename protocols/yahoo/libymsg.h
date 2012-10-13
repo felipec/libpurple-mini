@@ -28,8 +28,10 @@
 #include "circbuffer.h"
 #include "cmds.h"
 #include "prpl.h"
+#include "network.h"
 
 #define YAHOO_PAGER_HOST_REQ_URL "http://vcs1.msg.yahoo.com/capacity"
+#define YAHOO_PAGER_HOST_FALLBACK "scsa.msg.yahoo.com"
 #define YAHOO_PAGER_PORT 5050
 #define YAHOO_PAGER_PORT_P2P 5101
 #define YAHOO_LOGIN_URL "https://login.yahoo.com/config/pwtoken_login?src=ymsgr&ts=&token=%s"
@@ -63,7 +65,7 @@
 
 #define WEBMESSENGER_URL "http://login.yahoo.com/config/login?.src=pg"
 
-#define YAHOO_SMS_CARRIER_URL "http://lookup.msg.vip.mud.yahoo.com"
+#define YAHOO_SMS_CARRIER_URL "http://validate.msg.yahoo.com"
 
 #define YAHOO_USERINFO_URL "http://address.yahoo.com/yab/us?v=XM&sync=1&tags=short&useutf8=1&noclear=1&legenc=codepage-1252"
 #define YAHOOJP_USERINFO_URL "http://address.yahoo.co.jp/yab/jp?v=XM&sync=1&tags=short&useutf8=1&noclear=1&legenc=codepage-1252"
@@ -242,6 +244,7 @@ typedef struct {
 	GSList *url_datas;
 	GHashTable *xfer_peer_idstring_map;/* Hey, i dont know, but putting this HashTable next to friends gives a run time fault... */
 	GSList *cookies;/* contains all cookies, including _y and _t */
+	PurpleNetworkListenData *listen_data;
 
 	/**
 	 * We may receive a list15 in multiple packets with no prior warning as to how many we'll be getting;

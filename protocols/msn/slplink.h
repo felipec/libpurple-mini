@@ -26,8 +26,6 @@
 
 typedef struct _MsnSlpLink MsnSlpLink;
 
-#include "ft.h"
-
 #include "directconn.h"
 #include "session.h"
 #include "slpcall.h"
@@ -44,9 +42,10 @@ struct _MsnSlpLink
 	MsnSwitchBoard *swboard;
 	MsnDirectConn *dc;
 
-	int refs;
+	guint refs;
 
 	char *remote_user;
+	MsnP2PVersion p2p_version;
 
 	int slp_seq_id;
 
@@ -58,8 +57,6 @@ struct _MsnSlpLink
 
 MsnSlpLink *msn_slplink_ref(MsnSlpLink *slplink);
 void msn_slplink_unref(MsnSlpLink *slplink);
-
-void msn_slplink_destroy(MsnSlpLink *slplink);
 
 /**
  * @return An MsnSlpLink for the given user, or NULL if there is no
@@ -79,14 +76,14 @@ void msn_slplink_remove_slpcall(MsnSlpLink *slplink, MsnSlpCall *slpcall);
 MsnSlpCall *msn_slplink_find_slp_call(MsnSlpLink *slplink,
 									  const char *id);
 MsnSlpCall *msn_slplink_find_slp_call_with_session_id(MsnSlpLink *slplink, long id);
+MsnP2PVersion msn_slplink_get_p2p_version(MsnSlpLink *slplink);
+
 void msn_slplink_queue_slpmsg(MsnSlpLink *slplink, MsnSlpMessage *slpmsg);
 void msn_slplink_send_slpmsg(MsnSlpLink *slplink,
 							 MsnSlpMessage *slpmsg);
 void msn_slplink_send_queued_slpmsgs(MsnSlpLink *slplink);
-void msn_slplink_process_msg(MsnSlpLink *slplink, MsnSlpHeader *header, const char *data, gsize len);
-void msn_slplink_request_ft(MsnSlpLink *slplink, PurpleXfer *xfer);
+void msn_slplink_process_msg(MsnSlpLink *slplink, MsnSlpMessagePart *part);
 
-void msn_slplink_send_msg(MsnSlpLink *slplink, MsnMessage *msg);
 /* Only exported for msn_xfer_write */
 void msn_slplink_send_msgpart(MsnSlpLink *slplink, MsnSlpMessage *slpmsg);
 

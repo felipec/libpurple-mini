@@ -1159,6 +1159,7 @@ static void log_get_log_sets_common(GHashTable *sets)
 			g_dir_close(username_dir);
 		}
 		g_free(protocol_path);
+		g_list_free(accounts);
 		g_dir_close(protocol_dir);
 	}
 	g_free(log_path);
@@ -1683,7 +1684,6 @@ static GList *old_logger_list(PurpleLogType type, const char *sn, PurpleAccount 
 	struct tm tm;
 	char month[4];
 	struct old_logger_data *data = NULL;
-	char *newlog;
 	int logfound = 0;
 	int lastoff = 0;
 	int newlen;
@@ -1785,7 +1785,7 @@ static GList *old_logger_list(PurpleLogType type, const char *sn, PurpleAccount 
 	}
 
 	while (fgets(buf, BUF_LONG, file)) {
-		if ((newlog = strstr(buf, "---- New C"))) {
+		if (strstr(buf, "---- New C") != NULL) {
 			int length;
 			int offset;
 			char convostart[32];

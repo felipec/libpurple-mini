@@ -35,6 +35,16 @@ typedef enum
 	MSN_LIST_PL  /**< Pending list */
 } MsnListId;
 
+typedef enum
+{
+	MSN_LIST_FL_OP = 0x01,
+	MSN_LIST_AL_OP = 0x02,
+	MSN_LIST_BL_OP = 0x04,
+	MSN_LIST_RL_OP = 0x08,
+	MSN_LIST_PL_OP = 0x10
+} MsnListOp;
+#define MSN_LIST_OP_MASK	0x07
+
 #include "group.h"
 #include "msn.h"
 #include "user.h"
@@ -52,9 +62,6 @@ struct _MsnUserList
 
 };
 
-gboolean msn_userlist_user_is_in_group(MsnUser *user, const char * group_id);
-gboolean msn_userlist_user_is_in_list(MsnUser *user, MsnListId list_id);
-
 void msn_got_lst_user(MsnSession *session, MsnUser *user,
 					  MsnListOp list_op, GSList *group_ids);
 
@@ -66,7 +73,7 @@ void msn_userlist_remove_user(MsnUserList *userlist, MsnUser *user);
 
 MsnUser * msn_userlist_find_user(MsnUserList *userlist, const char *passport);
 MsnUser * msn_userlist_find_add_user(MsnUserList *userlist,
-				const char *passport, const char *userName);
+				const char *passport, const char *friendly_name);
 MsnUser * msn_userlist_find_user_with_id(MsnUserList *userlist, const char *uid);
 MsnUser * msn_userlist_find_user_with_mobile_phone(MsnUserList *userlist, const char *number);
 
@@ -98,6 +105,7 @@ void msn_userlist_add_buddy_to_list(MsnUserList *userlist, const char *who,
 				    MsnListId list_id);
 void msn_userlist_rem_buddy_from_list(MsnUserList *userlist, const char *who,
 				      MsnListId list_id);
+void msn_release_buddy_icon_request(MsnUserList *userlist);
 
 void msn_userlist_load(MsnSession *session);
 

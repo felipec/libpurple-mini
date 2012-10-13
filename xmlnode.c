@@ -223,7 +223,7 @@ xmlnode_set_attrib_full(xmlnode *node, const char *attr, const char *xmlns, cons
 
 
 const char *
-xmlnode_get_attrib(xmlnode *node, const char *attr)
+xmlnode_get_attrib(const xmlnode *node, const char *attr)
 {
 	xmlnode *x;
 
@@ -240,9 +240,9 @@ xmlnode_get_attrib(xmlnode *node, const char *attr)
 }
 
 const char *
-xmlnode_get_attrib_with_namespace(xmlnode *node, const char *attr, const char *xmlns)
+xmlnode_get_attrib_with_namespace(const xmlnode *node, const char *attr, const char *xmlns)
 {
-	xmlnode *x;
+	const xmlnode *x;
 
 	g_return_val_if_fail(node != NULL, NULL);
 	g_return_val_if_fail(attr != NULL, NULL);
@@ -606,7 +606,7 @@ xmlnode_parser_element_end_libxml(void *user_data, const xmlChar *element_name,
 {
 	struct _xmlnode_parser_data *xpd = user_data;
 
-       	if(!element_name || !xpd->current || xpd->error)
+	if(!element_name || !xpd->current || xpd->error)
 		return;
 
 	if(xpd->current->parent) {

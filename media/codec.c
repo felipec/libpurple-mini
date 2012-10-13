@@ -83,9 +83,11 @@ purple_media_codec_finalize(GObject *info)
 			PURPLE_MEDIA_CODEC_GET_PRIVATE(info);
 	g_free(priv->encoding_name);
 	for (; priv->optional_params; priv->optional_params =
-			g_list_delete_link(priv->optional_params,
-			priv->optional_params)) {
-		g_free(priv->optional_params->data);
+			g_list_delete_link(priv->optional_params, priv->optional_params)) {
+		PurpleKeyValuePair *param = priv->optional_params->data;
+		g_free(param->key);
+		g_free(param->value);
+		g_free(param);
 	}
 }
 
@@ -118,7 +120,7 @@ purple_media_codec_set_property (GObject *object, guint prop_id,
 		case PROP_OPTIONAL_PARAMS:
 			priv->optional_params = g_value_get_pointer(value);
 			break;
-		default:	
+		default:
 			G_OBJECT_WARN_INVALID_PROPERTY_ID(
 					object, prop_id, pspec);
 			break;
@@ -131,7 +133,7 @@ purple_media_codec_get_property (GObject *object, guint prop_id,
 {
 	PurpleMediaCodecPrivate *priv;
 	g_return_if_fail(PURPLE_IS_MEDIA_CODEC(object));
-	
+
 	priv = PURPLE_MEDIA_CODEC_GET_PRIVATE(object);
 
 	switch (prop_id) {
@@ -153,7 +155,7 @@ purple_media_codec_get_property (GObject *object, guint prop_id,
 		case PROP_OPTIONAL_PARAMS:
 			g_value_set_pointer(value, priv->optional_params);
 			break;
-		default:	
+		default:
 			G_OBJECT_WARN_INVALID_PROPERTY_ID(
 					object, prop_id, pspec);
 			break;
@@ -164,7 +166,7 @@ static void
 purple_media_codec_class_init(PurpleMediaCodecClass *klass)
 {
 	GObjectClass *gobject_class = (GObjectClass*)klass;
-	
+
 	gobject_class->finalize = purple_media_codec_finalize;
 	gobject_class->set_property = purple_media_codec_set_property;
 	gobject_class->get_property = purple_media_codec_get_property;
@@ -302,10 +304,10 @@ purple_media_codec_remove_optional_parameter(PurpleMediaCodec *codec,
 
 	g_free(param->key);
 	g_free(param->value);
-	g_free(param);
 
 	priv->optional_params =
 			g_list_remove(priv->optional_params, param);
+	g_free(param);
 }
 
 PurpleKeyValuePair *

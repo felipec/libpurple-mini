@@ -58,8 +58,8 @@ typedef enum
 	PURPLE_XFER_STATUS_ACCEPTED,      /**< Receive accepted, but destination file not selected yet */
 	PURPLE_XFER_STATUS_STARTED,       /**< purple_xfer_start has been called. */
 	PURPLE_XFER_STATUS_DONE,          /**< The xfer completed successfully. */
-	PURPLE_XFER_STATUS_CANCEL_LOCAL,  /**< The xfer was canceled by us. */
-	PURPLE_XFER_STATUS_CANCEL_REMOTE  /**< The xfer was canceled by the other end, or we couldn't connect. */
+	PURPLE_XFER_STATUS_CANCEL_LOCAL,  /**< The xfer was cancelled by us. */
+	PURPLE_XFER_STATUS_CANCEL_REMOTE  /**< The xfer was cancelled by the other end, or we couldn't connect. */
 } PurpleXferStatusType;
 
 /**
@@ -304,11 +304,12 @@ const char *purple_xfer_get_remote_user(const PurpleXfer *xfer);
 PurpleXferStatusType purple_xfer_get_status(const PurpleXfer *xfer);
 
 /**
- * Returns true if the file transfer was canceled.
+ * Returns true if the file transfer was cancelled.
  *
  * @param xfer The file transfer.
  *
- * @return Whether or not the transfer was canceled.
+ * @return Whether or not the transfer was cancelled.
+ * FIXME: This should be renamed using cancelled for 3.0.0.
  */
 gboolean purple_xfer_is_canceled(const PurpleXfer *xfer);
 
@@ -711,8 +712,8 @@ gconstpointer purple_xfer_get_thumbnail(const PurpleXfer *xfer, gsize *len);
  * @since 2.7.0
  */
 const gchar *purple_xfer_get_thumbnail_mimetype(const PurpleXfer *xfer);
-	
-	
+
+
 /**
  * Sets the thumbnail data for a transfer
  *

@@ -117,11 +117,12 @@ guint purple_media_codec_get_channels(PurpleMediaCodec *codec);
 /**
  * Gets a list of the optional parameters.
  *
- * The list consists of PurpleKeyValuePair's. 
+ * The list consists of PurpleKeyValuePair's.
  *
  * @param The codec to get the optional parameters from.
  *
- * @return The list of optional parameters.
+ * @return The list of optional parameters. The list is owned by the codec and
+ *         should not be freed.
  *
  * @since 2.6.0
  */

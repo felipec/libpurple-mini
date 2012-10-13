@@ -267,7 +267,9 @@ static PurplePluginProtocolInfo prpl_info =
 	NULL,  /* get_media_caps */
 	NULL,  /* get_moods */
 	NULL,  /* set_public_alias */
-	NULL   /* get_public_alias */
+	NULL,  /* get_public_alias */
+	NULL,  /* add_buddy_with_invite */
+	NULL   /* add_buddies_with_invite */
 };
 
 static PurplePluginInfo info =
@@ -327,7 +329,7 @@ init_plugin(PurplePlugin *plugin)
 	option = purple_account_option_bool_new(_("Ignore conference and chatroom invitations"), "ignore_invites", FALSE);
 	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options, option);
 
-	option = purple_account_option_bool_new(_("Use account proxy for SSL connections"), "proxy_ssl", FALSE);
+	option = purple_account_option_bool_new(_("Use account proxy for HTTP and HTTPS connections"), "proxy_ssl", FALSE);
 	prpl_info.protocol_options = g_list_append(prpl_info.protocol_options, option);
 
 #if 0

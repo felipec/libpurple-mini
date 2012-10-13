@@ -28,13 +28,18 @@ typedef struct _MsnUser  MsnUser;
 
 typedef enum
 {
-	MSN_NETWORK_UNKNOWN      = 0x00,
-	MSN_NETWORK_PASSPORT     = 0x01,
-	MSN_NETWORK_COMMUNICATOR = 0x02,
-	MSN_NETWORK_MOBILE       = 0x04,
-	MSN_NETWORK_MNI          = 0x08,
-	MSN_NETWORK_SMTP         = 0x10,
-	MSN_NETWORK_YAHOO        = 0x20
+	MSN_NETWORK_UNKNOWN      = 0,
+	MSN_NETWORK_PASSPORT     = 1,
+	MSN_NETWORK_COMMUNICATOR = 2,
+	MSN_NETWORK_MOBILE       = 4,
+	MSN_NETWORK_MNI          = 8,
+	MSN_NETWORK_CIRCLE       = 9,
+	MSN_NETWORK_TEMP_GROUP   = 10,
+	MSN_NETWORK_CID          = 11,
+	MSN_NETWORK_CONNECT      = 13,
+	MSN_NETWORK_REMOTE       = 14,
+	MSN_NETWORK_SMTP         = 16,
+	MSN_NETWORK_YAHOO        = 32
 } MsnNetwork;
 
 /**
@@ -57,8 +62,8 @@ typedef enum
  * put this info in in a separate struct to save memory because we
  * allocate an MsnUser struct for each buddy, but we generally only
  * need this information for a small percentage of our buddies
- * (usually less than 1%).  Putting it in a separate struct saves
- * makes MsnUser smaller by the size of a few pointers.
+ * (usually less than 1%).  Putting it in a separate struct makes
+ * MsnUser smaller by the size of a few pointers.
  */
 typedef struct _MsnUserExtendedInfo
 {
@@ -79,10 +84,13 @@ struct _MsnUser
 {
 	MsnUserList *userlist;
 
+	guint8 refcount;        /**< The reference count of this object */
+
 	char *passport;         /**< The passport account.          */
 	char *friendly_name;    /**< The friendly name.             */
 
 	char *uid;              /*< User ID                         */
+	GSList *endpoints;      /*< Endpoint-specific data          */
 
 	const char *status;     /**< The state of the user.         */
 	char *statusline;       /**< The state of the user.         */
@@ -102,6 +110,7 @@ struct _MsnUser
 	GHashTable *clientcaps; /**< The client's capabilities.     */
 
 	guint clientid;         /**< The client's ID                */
+	guint extcaps;			/**< The client's extended capabilities */
 
 	MsnNetwork networkid;   /**< The user's network             */
 
@@ -116,6 +125,18 @@ struct _MsnUser
 	char *invite_message;   /**< Invite message of user request */
 };
 
+/**
+ * A specific user endpoint.
+ */
+typedef struct MsnUserEndpoint {
+	char *id;               /**< The client's endpoint ID          */
+	char *name;             /**< The client's endpoint's name      */
+	int type;               /**< The client's endpoint type        */
+	guint clientid;         /**< The client's ID                   */
+	guint extcaps;          /**< The client's extended capabilites */
+
+} MsnUserEndpoint;
+
 /**************************************************************************
  ** @name User API                                                        *
  **************************************************************************/
@@ -128,18 +149,27 @@ struct _MsnUser
  * @param passport     The initial passport.
  * @param stored_name  The initial stored name.
  *
- * @return A new user structure.
+ * @return A new user structure.  It will have a reference count of 1.
  */
 MsnUser *msn_user_new(MsnUserList *userlist, const char *passport,
 					  const char *friendly_name);
 
 /**
- * Destroys a user structure.
+ * Increment the reference count.
  *
- * @param user The user to destroy.
+ * @param user 	The user.
+ *
+ * @return 		user.
  */
-void msn_user_destroy(MsnUser *user);
+MsnUser *msn_user_ref(MsnUser *user);
 
+/**
+ * Decrement the reference count.  When the count reaches 0 the object is
+ * automatically freed.
+ *
+ * @param user 	The user
+ */
+void msn_user_unref(MsnUser *user);
 
 /**
  * Updates the user.
@@ -252,12 +282,38 @@ void msn_user_set_work_phone(MsnUser *user, const char *number);
 void msn_user_set_uid(MsnUser *user, const char *uid);
 
 /**
+ * Sets endpoint data for a user.
+ *
+ * @param user     The user.
+ * @param endpoint The endpoint.
+ * @param data     The endpoint data.
+ */
+void
+msn_user_set_endpoint_data(MsnUser *user, const char *endpoint, MsnUserEndpoint *data);
+
+/**
+ * Clears all endpoint data for a user.
+ *
+ * @param user     The user.
+ */
+void
+msn_user_clear_endpoints(MsnUser *user);
+
+/**
  * Sets the client id for a user.
  *
  * @param user     The user.
  * @param clientid The client id.
  */
 void msn_user_set_clientid(MsnUser *user, guint clientid);
+
+/**
+ * Sets the client id for a user.
+ *
+ * @param user     The user.
+ * @param extcaps  The client's extended capabilities.
+ */
+void msn_user_set_extcaps(MsnUser *user, guint extcaps);
 
 /**
  * Sets the network id for a user.
@@ -346,6 +402,17 @@ const char *msn_user_get_work_phone(const MsnUser *user);
 const char *msn_user_get_mobile_phone(const MsnUser *user);
 
 /**
+ * Gets endpoint data for a user.
+ *
+ * @param user     The user.
+ * @param endpoint The endpoint.
+ *
+ * @return The user's endpoint data.
+ */
+MsnUserEndpoint *
+msn_user_get_endpoint_data(MsnUser *user, const char *endpoint);
+
+/**
  * Returns the client id for a user.
  *
  * @param user    The user.
@@ -354,6 +421,39 @@ const char *msn_user_get_mobile_phone(const MsnUser *user);
  */
 guint msn_user_get_clientid(const MsnUser *user);
 
+/**
+ * Returns the extended capabilities for a user.
+ *
+ * @param user    The user.
+ *
+ * @return The user's extended capabilities.
+ */
+guint msn_user_get_extcaps(const MsnUser *user);
+
+/**************************************************************************
+ * Utility functions
+ **************************************************************************/
+
+
+/**
+ * Check if the user is part of the group.
+ *
+ * @param user 		The user we are asking group membership.
+ * @param group_id 	The group where the user may be in.
+ *
+ * @return TRUE if user is part of the group. Otherwise, FALSE.
+ */
+gboolean msn_user_is_in_group(MsnUser *user, const char * group_id);
+
+/**
+ * Check if user is on list.
+ *
+ * @param user 		The user we are asking list membership.
+ * @param list_id 	The list where the user may be in.
+ *
+ * @return TRUE if the user is on the list, else FALSE.
+ */
+gboolean msn_user_is_in_list(MsnUser *user, MsnListId list_id);
 /**
  * Returns the network id for a user.
  *
@@ -398,10 +498,35 @@ gboolean msn_user_is_online(PurpleAccount *account, const char *name);
 /**
  * check to see if user is Yahoo User
  */
-gboolean msn_user_is_yahoo(PurpleAccount *account ,const char *name);
+gboolean msn_user_is_yahoo(PurpleAccount *account, const char *name);
 
 void msn_user_set_op(MsnUser *user, MsnListOp list_op);
 void msn_user_unset_op(MsnUser *user, MsnListOp list_op);
+
+/**
+ * Compare the given passport with the one of the user
+ *
+ * @param user 	User to compare.
+ * @oaran passport 	Passport to compare.
+ *
+ * @return Zero if the passport match with the one of the user, otherwise
+ * a positive integer if the user passport is greather than the one given
+ * and a negative integer if it is less.
+ */
+int msn_user_passport_cmp(MsnUser *user, const char *passport);
+
+/**
+ * Checks whether a user is capable of some task.
+ *
+ * @param user       The user.
+ * @param endpoint   The endpoint. Can be @NULL to check overall capabilities.
+ * @param capability The capability (including client version).
+ * @param extcap     The extended capability.
+ *
+ * @return Whether the user supports the capability.
+ */
+gboolean
+msn_user_is_capable(MsnUser *user, char *endpoint, guint capability, guint extcap);
 
 /*@}*/
 

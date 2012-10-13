@@ -30,10 +30,13 @@ typedef struct _MsnDirectConn MsnDirectConn;
 #include "proxy.h"
 #include "circbuffer.h"
 
-#include "msg.h"
 #include "slp.h"
 #include "slplink.h"
 #include "slpmsg.h"
+#include "slpmsg_part.h"
+#include "p2p.h"
+
+#define MSN_DCCONN_MAX_SIZE 1352
 
 typedef enum
 {
@@ -68,7 +71,7 @@ struct _MsnDirectConnPacket {
 	guchar      *data;
 
 	void        (*sent_cb)(struct _MsnDirectConnPacket*);
-	MsnMessage  *msg;
+	MsnSlpMessagePart *part;
 };
 
 struct _MsnDirectConn
@@ -100,8 +103,6 @@ struct _MsnDirectConn
 	GQueue  *out_queue; /**< The outgoing packet queue */
 	int     msg_pos;    /**< The position of next byte to be sent in the actual packet */
 
-	MsnSlpHeader    header; /**< SLP header for parsing / serializing */
-
 	/** The callback used for sending information to the peer about the opened socket */
 	void (*send_connection_info_msg_cb)(MsnDirectConn *);
 
@@ -125,13 +126,13 @@ struct _MsnDirectConn
  * Queues an MSN message to be sent via direct connection.
  */
 void
-msn_dc_enqueue_msg(MsnDirectConn *dc, MsnMessage *msg);
+msn_dc_enqueue_part(MsnDirectConn *dc, MsnSlpMessagePart *part);
 
 /*
  * Creates, initializes, and returns a new MsnDirectConn structure.
  */
 MsnDirectConn *
-msn_dc_new(MsnSlpCall *slplink);
+msn_dc_new(MsnSlpCall *slpcall);
 
 /*
  * Destroys an MsnDirectConn structure. Frees every buffer allocated earlier

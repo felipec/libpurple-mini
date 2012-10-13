@@ -1,4 +1,4 @@
-/* $Id: sha1.c 632 2008-07-30 18:40:06Z darkjames $ */
+/* $Id: sha1.c 1067 2011-03-15 18:57:16Z wojtekka $ */
 
 /*
  *  (C) Copyright 2007 Wojtek Kaniewski <wojtekka@irc.pl>
@@ -23,7 +23,7 @@
 /**
  * \file sha1.c
  *
- * \brief Funkcje wyznaczania skrĂłtu SHA1
+ * \brief Funkcje wyznaczania skrótu SHA1
  */
 
 #include <string.h>
