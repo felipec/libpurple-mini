@@ -1271,21 +1271,5 @@ purple_media_element_info_call_create(PurpleMediaElementInfo *info,
 	return NULL;
 }
 
-#else
-
-typedef void PurpleMediaElementInfo;
-
-GType
-purple_media_element_info_get_type()
-{
-	return G_TYPE_NONE;
-}
-
-gboolean
-purple_media_manager_set_active_element(PurpleMediaManager *manager,
-		PurpleMediaElementInfo *info)
-{
-	return FALSE;
-}
-
 #endif /* USE_GSTREAMER */
+
