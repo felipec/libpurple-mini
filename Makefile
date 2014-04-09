@@ -46,7 +46,7 @@ override CFLAGS += -DBR_PTHREADS=0 \
 	-DSSL_CERTIFICATES_DIR=\"$(ssl_dir)\"
 endif
 
-override CFLAGS += -DPURPLE_PLUGINS -DHAVE_SSL
+override CFLAGS += -DPURPLE_PLUGINS -DHAVE_SSL -DHAVE_CONFIG_H
 
 objects = account.o \
 	  accountopt.o \
